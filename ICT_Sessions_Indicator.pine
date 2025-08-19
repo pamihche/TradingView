@@ -41,6 +41,11 @@ color_30            = input.color(color.new(color.gray, 92), "30m Cycle", inline
 divider_color       = input.color(color.new(color.gray, 50), "Separator Line Color", group = g_STYLING)
 divider_width       = input.int(1, "Separator Line Width", minval = 1, maxval = 5, group = g_STYLING)
 
+var g_SEPARATORS    = "Session Separators"
+sep_line_color      = input.color(color.new(color.gray, 50), "Color", group = g_SEPARATORS)
+sep_line_style      = input.string("Dashed", "Style", options = ["Solid", "Dashed", "Dotted"], group = g_SEPARATORS)
+sep_line_width      = input.int(1, "Width", minval = 1, maxval = 5, group = g_SEPARATORS)
+
 // ---------------------------------------- Time Functions --------------------------------------------------
 get_line_style(_style) =>
     result = switch _style
@@ -62,6 +67,20 @@ is_in_session(session_def) =>
 
 is_new_bar(session_def) =>
     is_in_session(session_def) and not is_in_session(session_def)[1]
+
+get_session_end_time(session_def) =>
+    session_parts = str.split(session_def, '-')
+
+    string start_str = array.get(session_parts, 0)
+    string end_str = array.get(session_parts, 1)
+
+    int start_hour = int(str.tonumber(str.substring(start_str, 0, 2)))
+    int end_hour = int(str.tonumber(str.substring(end_str, 0, 2)))
+    int end_minute = int(str.tonumber(str.substring(end_str, 2, 4)))
+
+    day_offset = end_hour < start_hour ? 1 : 0
+
+    timestamp(TIMEZONE, year(time[1]), month(time[1]), dayofmonth(time[1]) + day_offset, end_hour, end_minute)
 
 // ---------------------------------------- Drawing Logic --------------------------------------------------
 draw_session_box(session_def, box_color, is_sub_cycle) =>
@@ -124,6 +143,34 @@ if can_draw
             draw_session_box(ny_am_time, box_na_color, false)
         if use_ny_pm
             draw_session_box(ny_pm_time, box_np_color, false)
+
+    // --- Session Separators ---
+    var line asia_sep_line = na
+    var line lon_sep_line = na
+    var line ny_am_sep_line = na
+    var line ny_pm_sep_line = na
+
+    var separator_style = get_line_style(sep_line_style)
+
+    if use_asia and is_new_bar(asia_time)
+        line.delete(asia_sep_line)
+        future_time = get_session_end_time(asia_time)
+        asia_sep_line := line.new(future_time, low, future_time, high, xloc=xloc.bar_time, extend=extend.both, color=sep_line_color, style=separator_style, width=sep_line_width)
+
+    if use_london and is_new_bar(london_time)
+        line.delete(lon_sep_line)
+        future_time = get_session_end_time(london_time)
+        lon_sep_line := line.new(future_time, low, future_time, high, xloc=xloc.bar_time, extend=extend.both, color=sep_line_color, style=separator_style, width=sep_line_width)
+
+    if use_ny_am and is_new_bar(ny_am_time)
+        line.delete(ny_am_sep_line)
+        future_time = get_session_end_time(ny_am_time)
+        ny_am_sep_line := line.new(future_time, low, future_time, high, xloc=xloc.bar_time, extend=extend.both, color=sep_line_color, style=separator_style, width=sep_line_width)
+
+    if use_ny_pm and is_new_bar(ny_pm_time)
+        line.delete(ny_pm_sep_line)
+        future_time = get_session_end_time(ny_pm_time)
+        ny_pm_sep_line := line.new(future_time, low, future_time, high, xloc=xloc.bar_time, extend=extend.both, color=sep_line_color, style=separator_style, width=sep_line_width)
 
     // Sub-Cycles
     // Asia
