@@ -1,0 +1,202 @@
+//@version=6
+indicator("Sessions & Cycles", shorttitle="Sessions & Cycles", overlay=true, max_boxes_count = 500, max_lines_count = 500)
+
+// ---------------------------------------- Constants --------------------------------------------------
+TIMEZONE = "America/New_York"
+TRADING_DAY_START = "1800-1801"
+
+// ---------------------------------------- Inputs --------------------------------------------------
+var g_SETTINGS      = "Settings"
+string tf_limit_str = input.string("15", "Timeframe Limit", options = ["1", "2", "3", "5", "15"], tooltip = "Drawings will not appear on timeframes greater than this.", group = g_SETTINGS)
+
+var g_DAY_LINE      = "Trading Day Start Line"
+show_day_line       = input.bool(true, "Show Line at 18:00", group = g_DAY_LINE)
+day_line_color      = input.color(color.new(color.blue, 40), "Color", inline = "TDL", group = g_DAY_LINE)
+day_line_style      = input.string("Solid", "Style", options = ["Solid", "Dashed", "Dotted"], inline = "TDL", group = g_DAY_LINE)
+day_line_width      = input.int(2, "Width", minval = 1, maxval = 5, inline = "TDL", group = g_DAY_LINE)
+
+var g_SESSIONS      = "Main Sessions"
+show_sessions       = input.bool(true, "Show Main Sessions", group = g_SESSIONS)
+use_asia            = input.bool(true, "Asia", inline = "S1", group = g_SESSIONS)
+asia_time           = input.session("1800-0230", "", inline = "S1", group = g_SESSIONS)
+asia_subcycles      = input.string("None", "Sub-Cycles", options = ["None", "90 Minutes", "90 AND 30 minutes"], inline = "S1", group = g_SESSIONS)
+use_london          = input.bool(true, "London", inline = "S2", group = g_SESSIONS)
+london_time         = input.session("0230-0700", "", inline = "S2", group = g_SESSIONS)
+london_subcycles    = input.string("None", "Sub-Cycles", options = ["None", "90 Minutes", "90 AND 30 minutes"], inline = "S2", group = g_SESSIONS)
+use_ny_am           = input.bool(true, "NY Morning", inline = "S3", group = g_SESSIONS)
+ny_am_time          = input.session("0700-1130", "", inline = "S3", group = g_SESSIONS)
+ny_am_subcycles     = input.string("None", "Sub-Cycles", options = ["None", "90 Minutes", "90 AND 30 minutes"], inline = "S3", group = g_SESSIONS)
+use_ny_pm           = input.bool(true, "NY Afternoon", inline = "S4", group = g_SESSIONS)
+ny_pm_time          = input.session("1130-1600", "", inline = "S4", group = g_SESSIONS)
+ny_pm_subcycles     = input.string("None", "Sub-Cycles", options = ["None", "90 Minutes", "90 AND 30 minutes"], inline = "S4", group = g_SESSIONS)
+
+var g_STYLING       = "Colors & Styles"
+box_as_color        = input.color(color.new(color.purple, 85), "Asia Color", inline = "C1", group = g_STYLING)
+box_lo_color        = input.color(color.new(color.orange, 85), "London Color", inline = "C1", group = g_STYLING)
+box_na_color        = input.color(color.new(color.blue, 85), "NY AM Color", inline = "C2", group = g_STYLING)
+box_np_color        = input.color(color.new(color.green, 85), "NY PM Color", inline = "C2", group = g_STYLING)
+color_90_a          = input.color(color.new(color.blue, 90), "90m Cycle A", inline = "C3", group = g_STYLING)
+color_90_b          = input.color(color.new(color.green, 90), "90m Cycle B", inline = "C3", group = g_STYLING)
+color_30            = input.color(color.new(color.gray, 92), "30m Cycle", inline = "C4", group = g_STYLING)
+divider_color       = input.color(color.new(color.gray, 50), "Separator Line Color", group = g_STYLING)
+divider_width       = input.int(1, "Separator Line Width", minval = 1, maxval = 5, group = g_STYLING)
+
+// ---------------------------------------- Time Functions --------------------------------------------------
+get_line_style(_style) =>
+    result = switch _style
+        'Solid' => line.style_solid
+        'Dotted' => line.style_dotted
+        'Dashed' => line.style_dashed
+    result
+
+tf_limit_seconds = switch tf_limit_str
+    "1"  => 60
+    "2"  => 120
+    "3"  => 180
+    "5"  => 300
+    "15" => 900
+    => 900
+
+is_in_session(session_def) =>
+    not na(time(timeframe.period, session_def, TIMEZONE))
+
+is_new_bar(session_def) =>
+    is_in_session(session_def) and not is_in_session(session_def)[1]
+
+// ---------------------------------------- Drawing Logic --------------------------------------------------
+draw_session_box(session_def, box_color, is_sub_cycle) =>
+    var box session_box = na
+    var line start_line = na
+    var float session_high = na
+    var float session_low = na
+
+    in_session = is_in_session(session_def)
+    is_first_bar = in_session and not in_session[1]
+
+    if is_first_bar
+        // Cleanup old drawings from the previous day
+        if not na(session_box)
+            box.delete(session_box)
+            line.delete(start_line)
+
+        session_high := high
+        session_low := low
+
+        // Create new box
+        session_box := box.new(time, high, time, low, xloc=xloc.bar_time, bgcolor=box_color, border_color=box_color)
+
+        // Create new start line with conditional extension
+        line_extend_style = is_sub_cycle ? extend.none : extend.both
+        start_line := line.new(time, session_low, time, session_high, xloc=xloc.bar_time, extend=line_extend_style, color=divider_color, style=line.style_dotted, width=divider_width)
+
+    else if in_session
+        if not na(session_box) // Make sure we have a box to update
+            // Extend the box's right edge to the close of the current bar
+            box.set_right(session_box, time_close)
+
+            // Update the vertical range of the box and line
+            session_high := math.max(session_high, high)
+            session_low := math.min(session_low, low)
+            box.set_top(session_box, session_high)
+            box.set_bottom(session_box, session_low)
+            line.set_y1(start_line, session_low)
+            line.set_y2(start_line, session_high)
+    0 // Return an int to allow calling it as a statement
+
+// ---------------------------------------- Core Logic --------------------------------------------------
+can_draw = timeframe.in_seconds(timeframe.period) <= tf_limit_seconds
+var line day_separator_line = na
+
+// Standalone Day Separator Line
+if can_draw and show_day_line and is_new_bar(TRADING_DAY_START)
+    if not na(day_separator_line)
+        line.delete(day_separator_line)
+    day_separator_line := line.new(bar_index, low, bar_index, high, extend=extend.both, color=day_line_color, style=get_line_style(day_line_style), width=day_line_width)
+
+if can_draw
+    // Main Sessions
+    if show_sessions
+        if use_asia
+            draw_session_box(asia_time, box_as_color, false)
+        if use_london
+            draw_session_box(london_time, box_lo_color, false)
+        if use_ny_am
+            draw_session_box(ny_am_time, box_na_color, false)
+        if use_ny_pm
+            draw_session_box(ny_pm_time, box_np_color, false)
+
+    // Sub-Cycles
+    // Asia
+    if use_asia
+        if asia_subcycles == "90 Minutes" or asia_subcycles == "90 AND 30 minutes"
+            draw_session_box("1800-1930", color_90_a, true)
+            draw_session_box("1930-2100", color_90_b, true)
+            draw_session_box("2100-2230", color_90_a, true)
+            draw_session_box("2230-0000", color_90_b, true)
+            draw_session_box("0000-0130", color_90_a, true)
+        if asia_subcycles == "90 AND 30 minutes"
+            draw_session_box("1800-1830", color_30, true)
+            draw_session_box("1830-1900", color_30, true)
+            draw_session_box("1900-1930", color_30, true)
+            draw_session_box("1930-2000", color_30, true)
+            draw_session_box("2000-2030", color_30, true)
+            draw_session_box("2030-2100", color_30, true)
+            draw_session_box("2100-2130", color_30, true)
+            draw_session_box("2130-2200", color_30, true)
+            draw_session_box("2200-2230", color_30, true)
+            draw_session_box("2230-2300", color_30, true)
+            draw_session_box("2300-2330", color_30, true)
+            draw_session_box("2330-0000", color_30, true)
+            draw_session_box("0000-0030", color_30, true)
+            draw_session_box("0030-0100", color_30, true)
+            draw_session_box("0100-0130", color_30, true)
+            draw_session_box("0130-0200", color_30, true)
+            draw_session_box("0200-0230", color_30, true)
+    // London
+    if use_london
+        if london_subcycles == "90 Minutes" or london_subcycles == "90 AND 30 minutes"
+            draw_session_box("0230-0400", color_90_a, true)
+            draw_session_box("0400-0530", color_90_b, true)
+            draw_session_box("0530-0700", color_90_a, true)
+        if london_subcycles == "90 AND 30 minutes"
+            draw_session_box("0230-0300", color_30, true)
+            draw_session_box("0300-0330", color_30, true)
+            draw_session_box("0330-0400", color_30, true)
+            draw_session_box("0400-0430", color_30, true)
+            draw_session_box("0430-0500", color_30, true)
+            draw_session_box("0500-0530", color_30, true)
+            draw_session_box("0530-0600", color_30, true)
+            draw_session_box("0600-0630", color_30, true)
+            draw_session_box("0630-0700", color_30, true)
+    // NY AM
+    if use_ny_am
+        if ny_am_subcycles == "90 Minutes" or ny_am_subcycles == "90 AND 30 minutes"
+            draw_session_box("0700-0830", color_90_a, true)
+            draw_session_box("0830-1000", color_90_b, true)
+            draw_session_box("1000-1130", color_90_a, true)
+        if ny_am_subcycles == "90 AND 30 minutes"
+            draw_session_box("0700-0730", color_30, true)
+            draw_session_box("0730-0800", color_30, true)
+            draw_session_box("0800-0830", color_30, true)
+            draw_session_box("0830-0900", color_30, true)
+            draw_session_box("0900-0930", color_30, true)
+            draw_session_box("0930-1000", color_30, true)
+            draw_session_box("1000-1030", color_30, true)
+            draw_session_box("1030-1100", color_30, true)
+            draw_session_box("1100-1130", color_30, true)
+    // NY PM
+    if use_ny_pm
+        if ny_pm_subcycles == "90 Minutes" or ny_pm_subcycles == "90 AND 30 minutes"
+            draw_session_box("1130-1300", color_90_a, true)
+            draw_session_box("1300-1430", color_90_b, true)
+            draw_session_box("1430-1600", color_90_a, true)
+        if ny_pm_subcycles == "90 AND 30 minutes"
+            draw_session_box("1130-1200", color_30, true)
+            draw_session_box("1200-1230", color_30, true)
+            draw_session_box("1230-1300", color_30, true)
+            draw_session_box("1300-1330", color_30, true)
+            draw_session_box("1330-1400", color_30, true)
+            draw_session_box("1400-1430", color_30, true)
+            draw_session_box("1430-1500", color_30, true)
+            draw_session_box("1500-1530", color_30, true)
+            draw_session_box("1530-1600", color_30, true)
