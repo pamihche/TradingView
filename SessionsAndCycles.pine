@@ -51,17 +51,17 @@ type CycleData
 var map<string, CycleData> g_cycle_data_map = map.new<string, CycleData>()
 
 // State arrays to manage the tracking of the 5 Asia sub-cycles independently
-var g_high_vals = array.new_float(5, na)
-var g_low_vals = array.new_float(5, na)
-var g_high_bar_index_vals = array.new_int(5, na)
-var g_low_bar_index_vals = array.new_int(5, na)
-var g_start_time_vals = array.new_int(5, na)
+var g_high_vals = array.new_float(14, na)
+var g_low_vals = array.new_float(14, na)
+var g_high_bar_index_vals = array.new_int(14, na)
+var g_low_bar_index_vals = array.new_int(14, na)
+var g_start_time_vals = array.new_int(14, na)
 
 // Arrays to hold the IDs of the drawn marker boxes for future deletion
-var g_high_marker_boxes = array.new_box(5, na)
-var g_low_marker_boxes = array.new_box(5, na)
-var g_high_midline_ids = array.new_line(5, na)
-var g_low_midline_ids = array.new_line(5, na)
+var g_high_marker_boxes = array.new_box(14, na)
+var g_low_marker_boxes = array.new_box(14, na)
+var g_high_midline_ids = array.new_line(14, na)
+var g_low_midline_ids = array.new_line(14, na)
 
 
 // ---------------------------------------- Inputs --------------------------------------------------
@@ -468,6 +468,30 @@ if can_draw
             draw_cycle_markers("2230-0000", "Asia-4-" + str.tostring(trading_day_id), 3)
             track_and_store_cycle_data(4, "0000-0130", "Asia-5-" + str.tostring(trading_day_id))
             draw_cycle_markers("0000-0130", "Asia-5-" + str.tostring(trading_day_id), 4)
+
+        if use_london and lo_show_90
+            track_and_store_cycle_data(5, "0230-0400", "London-1-" + str.tostring(trading_day_id))
+            draw_cycle_markers("0230-0400", "London-1-" + str.tostring(trading_day_id), 5)
+            track_and_store_cycle_data(6, "0400-0530", "London-2-" + str.tostring(trading_day_id))
+            draw_cycle_markers("0400-0530", "London-2-" + str.tostring(trading_day_id), 6)
+            track_and_store_cycle_data(7, "0530-0700", "London-3-" + str.tostring(trading_day_id))
+            draw_cycle_markers("0530-0700", "London-3-" + str.tostring(trading_day_id), 7)
+
+        if use_ny_am and na_show_90
+            track_and_store_cycle_data(8, "0700-0830", "NY-AM-1-" + str.tostring(trading_day_id))
+            draw_cycle_markers("0700-0830", "NY-AM-1-" + str.tostring(trading_day_id), 8)
+            track_and_store_cycle_data(9, "0830-1000", "NY-AM-2-" + str.tostring(trading_day_id))
+            draw_cycle_markers("0830-1000", "NY-AM-2-" + str.tostring(trading_day_id), 9)
+            track_and_store_cycle_data(10, "1000-1130", "NY-AM-3-" + str.tostring(trading_day_id))
+            draw_cycle_markers("1000-1130", "NY-AM-3-" + str.tostring(trading_day_id), 10)
+
+        if use_ny_pm and np_show_90
+            track_and_store_cycle_data(11, "1130-1300", "NY-PM-1-" + str.tostring(trading_day_id))
+            draw_cycle_markers("1130-1300", "NY-PM-1-" + str.tostring(trading_day_id), 11)
+            track_and_store_cycle_data(12, "1300-1430", "NY-PM-2-" + str.tostring(trading_day_id))
+            draw_cycle_markers("1300-1430", "NY-PM-2-" + str.tostring(trading_day_id), 12)
+            track_and_store_cycle_data(13, "1430-1600", "NY-PM-3-" + str.tostring(trading_day_id))
+            draw_cycle_markers("1430-1600", "NY-PM-3-" + str.tostring(trading_day_id), 13)
 
     // Sub-Cycles
     // Asia
