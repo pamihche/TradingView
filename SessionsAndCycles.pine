@@ -50,6 +50,37 @@ type CycleData
 // Map to store the data for all completed 90m cycles
 var map<string, CycleData> g_cycle_data_map = map.new<string, CycleData>()
 
+// Type to hold the high/low data for a single main session
+type SessionData
+    float high = na
+    float low = na
+    int start_time = na
+    int end_time = na
+    int high_bar_index = na
+    int low_bar_index = na
+
+// Map to store the data for all completed main sessions
+var map<string, SessionData> g_session_data_map = map.new<string, SessionData>()
+
+// Global state for the daily high/low tracking
+var g_daily_hl_prices = array.new_float(2, na)
+var g_daily_lines = array.new_line(2, na)
+var g_daily_labels = array.new_label(2, na)
+
+// State arrays to manage the tracking of the 4 main sessions independently
+var g_main_session_high_vals = array.new_float(4, na)
+var g_main_session_low_vals = array.new_float(4, na)
+var g_main_session_start_time_vals = array.new_int(4, na)
+var g_main_session_high_time_vals = array.new_int(4, na)
+var g_main_session_low_time_vals = array.new_int(4, na)
+
+// Arrays to hold the IDs of the drawn high/low lines and labels for future deletion
+var g_high_lines = array.new_line(4, na)
+var g_low_lines = array.new_line(4, na)
+var g_high_labels = array.new_label(4, na)
+var g_low_labels = array.new_label(4, na)
+
+
 // State arrays to manage the tracking of the 5 Asia sub-cycles independently
 var g_high_vals = array.new_float(14, na)
 var g_low_vals = array.new_float(14, na)
@@ -147,6 +178,22 @@ l_box_border_width      = input.int(1, "", minval = 0, group = g_MARKER_STYLE, i
 mid_line_color          = input.color(color.new(color.white, 50), "Mid Line", group = g_MARKER_STYLE, inline = "ML1")
 mid_line_width          = input.int(1, "", minval = 1, maxval = 5, group = g_MARKER_STYLE, inline = "ML1")
 mid_line_style          = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], group = g_MARKER_STYLE, inline = "ML1")
+
+
+// --- Session High/Low Lines ---
+var g_SESSION_HL_LINES = "Session High/Low Lines"
+show_session_hl         = input.bool(true, "Show Session High/Low Lines", group = g_SESSION_HL_LINES)
+// High Line
+shl_high_color          = input.color(color.new(color.green, 50), "High Line", group = g_SESSION_HL_LINES, inline = "SHL_H")
+shl_high_width          = input.int(1, "", minval = 1, maxval = 5, group = g_SESSION_HL_LINES, inline = "SHL_H")
+shl_high_style          = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], group = g_SESSION_HL_LINES, inline = "SHL_H")
+// Low Line
+shl_low_color           = input.color(color.new(color.red, 50), "Low Line", group = g_SESSION_HL_LINES, inline = "SHL_L")
+shl_low_width           = input.int(1, "", minval = 1, maxval = 5, group = g_SESSION_HL_LINES, inline = "SHL_L")
+shl_low_style           = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], group = g_SESSION_HL_LINES, inline = "SHL_L")
+// Labels
+shl_high_label_color    = input.color(color.new(color.blue, 0), "High Label", group = g_SESSION_HL_LINES, inline = "SHL_Labels")
+shl_low_label_color     = input.color(color.new(color.red, 0), "Low Label", group = g_SESSION_HL_LINES, inline = "SHL_Labels")
 
 
 // --- Pre-calculated Boolean Checks for Performance ---
@@ -257,6 +304,98 @@ track_and_store_cycle_data(cycle_index, session_def, cycle_id) =>
 get_cycle_data(cycle_id) =>
     g_cycle_data_map.get(cycle_id)
 
+manage_sessions_and_lines(trading_day_id) =>
+    // --- Determine Current Session ---
+    in_asia = is_in_session(ASIA_SESSION_DEF)
+    in_london = is_in_session(LONDON_SESSION_DEF)
+    in_ny_am = is_in_session(NY_AM_SESSION_DEF)
+    in_ny_pm = is_in_session(NY_PM_SESSION_DEF)
+    in_any_session = in_asia or in_london or in_ny_am or in_ny_pm
+
+    // --- Session High/Low Tracking ---
+    var as_high = float(na), var as_low = float(na), var as_high_bar = int(na), var as_low_bar = int(na), var as_start_bar = int(na)
+    var lo_high = float(na), var lo_low = float(na), var lo_high_bar = int(na), var lo_low_bar = int(na), var lo_start_bar = int(na)
+    var na_high = float(na), var na_low = float(na), var na_high_bar = int(na), var na_low_bar = int(na), var na_start_bar = int(na)
+    var np_high = float(na), var np_low = float(na), var np_high_bar = int(na), var np_low_bar = int(na), var np_start_bar = int(na)
+
+    if is_new_bar(TRADING_DAY_START)
+        as_high := na, as_low := na, as_high_bar := na, as_low_bar := na, as_start_bar := na
+        lo_high := na, lo_low := na, lo_high_bar := na, lo_low_bar := na, lo_start_bar := na
+        na_high := na, na_low := na, na_high_bar := na, na_low_bar := na, na_start_bar := na
+        np_high := na, np_low := na, np_high_bar := na, np_low_bar := na, np_start_bar := na
+
+    if in_asia
+        if na(as_high)
+            as_start_bar := bar_index
+        as_high_bar := high > as_high or na(as_high) ? bar_index : as_high_bar
+        as_low_bar := low < as_low or na(as_low) ? bar_index : as_low_bar
+        as_high := na(as_high) ? high : math.max(as_high, high)
+        as_low := na(as_low) ? low : math.min(as_low, low)
+    else if in_london
+        if na(lo_high)
+            lo_start_bar := bar_index
+        lo_high_bar := high > lo_high or na(lo_high) ? bar_index : lo_high_bar
+        lo_low_bar := low < lo_low or na(lo_low) ? bar_index : lo_low_bar
+        lo_high := na(lo_high) ? high : math.max(lo_high, high)
+        lo_low := na(lo_low) ? low : math.min(lo_low, low)
+    else if in_ny_am
+        if na(na_high)
+            na_start_bar := bar_index
+        na_high_bar := high > na_high or na(na_high) ? bar_index : na_high_bar
+        na_low_bar := low < na_low or na(na_low) ? bar_index : na_low_bar
+        na_high := na(na_high) ? high : math.max(na_high, high)
+        na_low := na(na_low) ? low : math.min(na_low, low)
+    else if in_ny_pm
+        if na(np_high)
+            np_start_bar := bar_index
+        np_high_bar := high > np_high or na(np_high) ? bar_index : np_high_bar
+        np_low_bar := low < np_low or na(np_low) ? bar_index : np_low_bar
+        np_high := na(np_high) ? high : math.max(np_high, high)
+        np_low := na(np_low) ? low : math.min(np_low, low)
+
+    // --- Real-time Line Management ---
+    // Unconditionally extend lines first
+    if not na(g_daily_lines.get(0))
+        line.set_x2(g_daily_lines.get(0), bar_index)
+    if not na(g_daily_lines.get(1))
+        line.set_x2(g_daily_lines.get(1), bar_index)
+
+    // Then, only check for new highs/lows if we are in a session
+    if in_any_session
+        // High Side
+        daily_high = g_daily_hl_prices.get(0)
+        current_high = in_asia ? as_high : in_london ? lo_high : in_ny_am ? na_high : in_ny_pm ? np_high : na
+        is_new_daily_high = not na(current_high) and (na(daily_high) or current_high > daily_high)
+
+        if is_new_daily_high
+            line.delete(g_daily_lines.get(0))
+            label.delete(g_daily_labels.get(0))
+
+            start_bar = in_asia ? as_high_bar : in_london ? lo_high_bar : in_ny_am ? na_high_bar : np_high_bar
+            session_start_bar = in_asia ? as_start_bar : in_london ? lo_start_bar : in_ny_am ? na_start_bar : np_start_bar
+            session_name = in_asia ? "Asia" : in_london ? "London" : in_ny_am ? "NY AM" : "NY PM"
+
+            g_daily_lines.set(0, line.new(start_bar, current_high, bar_index, current_high, xloc=xloc.bar_index, color=shl_high_color, style=get_line_style(shl_high_style), width=shl_high_width))
+            g_daily_labels.set(0, label.new(session_start_bar, current_high, session_name + " High", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_down, color=color(na), textcolor=shl_high_label_color, size=size.normal, textalign=text.align_left))
+            g_daily_hl_prices.set(0, current_high)
+
+        // Low Side
+        daily_low = g_daily_hl_prices.get(1)
+        current_low = in_asia ? as_low : in_london ? lo_low : in_ny_am ? na_low : in_ny_pm ? np_low : na
+        is_new_daily_low = not na(current_low) and (na(daily_low) or current_low < daily_low)
+
+        if is_new_daily_low
+            line.delete(g_daily_lines.get(1))
+            label.delete(g_daily_labels.get(1))
+
+            start_bar = in_asia ? as_low_bar : in_london ? lo_low_bar : in_ny_am ? na_low_bar : np_low_bar
+            session_start_bar = in_asia ? as_start_bar : in_london ? lo_start_bar : in_ny_am ? na_start_bar : np_start_bar
+            session_name = in_asia ? "Asia" : in_london ? "London" : in_ny_am ? "NY AM" : "NY PM"
+
+            g_daily_lines.set(1, line.new(start_bar, current_low, bar_index, current_low, xloc=xloc.bar_index, color=shl_low_color, style=get_line_style(shl_low_style), width=shl_low_width))
+            g_daily_labels.set(1, label.new(session_start_bar, current_low, session_name + " Low", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_up, color=color(na), textcolor=shl_low_label_color, size=size.normal, textalign=text.align_left))
+            g_daily_hl_prices.set(1, current_low)
+    0
 
 // ---------------------------------------- Marker Drawing Logic --------------------------------------------------
 draw_cycle_markers(session_def, cycle_id, cycle_index) =>
@@ -365,6 +504,12 @@ if can_draw
     var int trading_day_id = 0
     if is_new_bar(TRADING_DAY_START)
         trading_day_id += 1
+        // Reset daily high/low tracking variables
+        g_daily_hl_prices.fill(na)
+        line.delete(g_daily_lines.get(0))
+        label.delete(g_daily_labels.get(0))
+        line.delete(g_daily_lines.get(1))
+        label.delete(g_daily_labels.get(1))
 
     var float current_trading_day_high = high
     if trading_day_id > trading_day_id[1]
@@ -454,6 +599,10 @@ if can_draw
             draw_session_box(NY_AM_SESSION_DEF, na_box_color, false)
         if use_ny_pm
             draw_session_box(NY_PM_SESSION_DEF, np_box_color, false)
+
+    // --- Session High/Low Line Management ---
+    if show_session_hl
+        manage_sessions_and_lines(trading_day_id)
 
     // --- Sub-Cycle Data Tracking and Marker Drawing ---
     if timeframe.period == "1"
