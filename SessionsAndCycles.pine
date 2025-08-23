@@ -387,11 +387,13 @@ manage_sessions_and_lines(trading_day_id) =>
 
 
     // --- Real-time Line Management ---
-    // Unconditionally extend lines first
+    // Unconditionally extend lines and move labels first
     if not na(g_daily_lines.get(0))
         line.set_x2(g_daily_lines.get(0), bar_index)
+        label.set_x(g_daily_labels.get(0), bar_index)
     if not na(g_daily_lines.get(1))
         line.set_x2(g_daily_lines.get(1), bar_index)
+        label.set_x(g_daily_labels.get(1), bar_index)
 
     // Then, only check for new highs/lows if we are in a session
     if in_any_session
@@ -405,11 +407,10 @@ manage_sessions_and_lines(trading_day_id) =>
             label.delete(g_daily_labels.get(0))
 
             start_bar = in_asia ? as_high_bar : in_london ? lo_high_bar : in_ny_am ? na_high_bar : np_high_bar
-            session_start_bar = in_asia ? as_start_bar : in_london ? lo_start_bar : in_ny_am ? na_start_bar : np_start_bar
             session_name = in_asia ? "Asia" : in_london ? "London" : in_ny_am ? "NY AM" : "NY PM"
 
             g_daily_lines.set(0, line.new(start_bar, current_high, bar_index, current_high, xloc=xloc.bar_index, color=shl_high_color, style=get_line_style(shl_high_style), width=shl_high_width))
-            g_daily_labels.set(0, label.new(session_start_bar, current_high, session_name + " High", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_down, color=color(na), textcolor=shl_high_label_color, size=size.normal, textalign=text.align_left))
+            g_daily_labels.set(0, label.new(bar_index, current_high, session_name + " High", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color(na), textcolor=shl_high_label_color, size=size.normal))
             g_daily_hl_prices.set(0, current_high)
 
         // Low Side
@@ -422,11 +423,10 @@ manage_sessions_and_lines(trading_day_id) =>
             label.delete(g_daily_labels.get(1))
 
             start_bar = in_asia ? as_low_bar : in_london ? lo_low_bar : in_ny_am ? na_low_bar : np_low_bar
-            session_start_bar = in_asia ? as_start_bar : in_london ? lo_start_bar : in_ny_am ? na_start_bar : np_start_bar
             session_name = in_asia ? "Asia" : in_london ? "London" : in_ny_am ? "NY AM" : "NY PM"
 
             g_daily_lines.set(1, line.new(start_bar, current_low, bar_index, current_low, xloc=xloc.bar_index, color=shl_low_color, style=get_line_style(shl_low_style), width=shl_low_width))
-            g_daily_labels.set(1, label.new(session_start_bar, current_low, session_name + " Low", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_up, color=color(na), textcolor=shl_low_label_color, size=size.normal, textalign=text.align_left))
+            g_daily_labels.set(1, label.new(bar_index, current_low, session_name + " Low", xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left, color=color(na), textcolor=shl_low_label_color, size=size.normal))
             g_daily_hl_prices.set(1, current_low)
     0
 
