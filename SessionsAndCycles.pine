@@ -81,6 +81,13 @@ var g_high_labels = array.new_label(4, na)
 var g_low_labels = array.new_label(4, na)
 
 
+// Arrays to hold the IDs of the drawn marker boxes for the main sessions
+var g_main_session_high_marker_boxes = array.new_box(4, na)
+var g_main_session_low_marker_boxes = array.new_box(4, na)
+var g_main_session_high_midlines = array.new_line(4, na)
+var g_main_session_low_midlines = array.new_line(4, na)
+
+
 // State arrays to manage the tracking of the 5 Asia sub-cycles independently
 var g_high_vals = array.new_float(14, na)
 var g_low_vals = array.new_float(14, na)
@@ -175,7 +182,7 @@ l_box_bg_color          = input.color(color.new(color.red, 80), "Low Box BG", gr
 l_box_border_color      = input.color(color.new(color.red, 50), "Border", group = g_MARKER_STYLE, inline = "LB1")
 l_box_border_width      = input.int(1, "", minval = 0, group = g_MARKER_STYLE, inline = "LB1")
 // Middle Line
-mid_line_color          = input.color(color.new(color.white, 50), "Mid Line", group = g_MARKER_STYLE, inline = "ML1")
+mid_line_color          = input.color(color.new(color.gray, 0), "Mid Line", group = g_MARKER_STYLE, inline = "ML1")
 mid_line_width          = input.int(1, "", minval = 1, maxval = 5, group = g_MARKER_STYLE, inline = "ML1")
 mid_line_style          = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], group = g_MARKER_STYLE, inline = "ML1")
 
@@ -313,20 +320,21 @@ manage_sessions_and_lines(trading_day_id) =>
     in_any_session = in_asia or in_london or in_ny_am or in_ny_pm
 
     // --- Session High/Low Tracking ---
-    var as_high = float(na), var as_low = float(na), var as_high_bar = int(na), var as_low_bar = int(na), var as_start_bar = int(na)
-    var lo_high = float(na), var lo_low = float(na), var lo_high_bar = int(na), var lo_low_bar = int(na), var lo_start_bar = int(na)
-    var na_high = float(na), var na_low = float(na), var na_high_bar = int(na), var na_low_bar = int(na), var na_start_bar = int(na)
-    var np_high = float(na), var np_low = float(na), var np_high_bar = int(na), var np_low_bar = int(na), var np_start_bar = int(na)
+    var as_high = float(na), var as_low = float(na), var as_high_bar = int(na), var as_low_bar = int(na), var as_start_bar = int(na), var as_start_time = int(na)
+    var lo_high = float(na), var lo_low = float(na), var lo_high_bar = int(na), var lo_low_bar = int(na), var lo_start_bar = int(na), var lo_start_time = int(na)
+    var na_high = float(na), var na_low = float(na), var na_high_bar = int(na), var na_low_bar = int(na), var na_start_bar = int(na), var na_start_time = int(na)
+    var np_high = float(na), var np_low = float(na), var np_high_bar = int(na), var np_low_bar = int(na), var np_start_bar = int(na), var np_start_time = int(na)
 
     if is_new_bar(TRADING_DAY_START)
-        as_high := na, as_low := na, as_high_bar := na, as_low_bar := na, as_start_bar := na
-        lo_high := na, lo_low := na, lo_high_bar := na, lo_low_bar := na, lo_start_bar := na
-        na_high := na, na_low := na, na_high_bar := na, na_low_bar := na, na_start_bar := na
-        np_high := na, np_low := na, np_high_bar := na, np_low_bar := na, np_start_bar := na
+        as_high := na, as_low := na, as_high_bar := na, as_low_bar := na, as_start_bar := na, as_start_time := na
+        lo_high := na, lo_low := na, lo_high_bar := na, lo_low_bar := na, lo_start_bar := na, lo_start_time := na
+        na_high := na, na_low := na, na_high_bar := na, na_low_bar := na, na_start_bar := na, na_start_time := na
+        np_high := na, np_low := na, np_high_bar := na, np_low_bar := na, np_start_bar := na, np_start_time := na
 
     if in_asia
         if na(as_high)
             as_start_bar := bar_index
+            as_start_time := time
         as_high_bar := high > as_high or na(as_high) ? bar_index : as_high_bar
         as_low_bar := low < as_low or na(as_low) ? bar_index : as_low_bar
         as_high := na(as_high) ? high : math.max(as_high, high)
@@ -334,6 +342,7 @@ manage_sessions_and_lines(trading_day_id) =>
     else if in_london
         if na(lo_high)
             lo_start_bar := bar_index
+            lo_start_time := time
         lo_high_bar := high > lo_high or na(lo_high) ? bar_index : lo_high_bar
         lo_low_bar := low < lo_low or na(lo_low) ? bar_index : lo_low_bar
         lo_high := na(lo_high) ? high : math.max(lo_high, high)
@@ -341,6 +350,7 @@ manage_sessions_and_lines(trading_day_id) =>
     else if in_ny_am
         if na(na_high)
             na_start_bar := bar_index
+            na_start_time := time
         na_high_bar := high > na_high or na(na_high) ? bar_index : na_high_bar
         na_low_bar := low < na_low or na(na_low) ? bar_index : na_low_bar
         na_high := na(na_high) ? high : math.max(na_high, high)
@@ -348,10 +358,33 @@ manage_sessions_and_lines(trading_day_id) =>
     else if in_ny_pm
         if na(np_high)
             np_start_bar := bar_index
+            np_start_time := time
         np_high_bar := high > np_high or na(np_high) ? bar_index : np_high_bar
         np_low_bar := low < np_low or na(np_low) ? bar_index : np_low_bar
         np_high := na(np_high) ? high : math.max(np_high, high)
         np_low := na(np_low) ? low : math.min(np_low, low)
+
+    // --- Session Data Storage on Completion ---
+    is_asia_end = is_in_session(ASIA_SESSION_DEF)[1] and not in_asia
+    if is_asia_end
+        session_data = SessionData.new(as_high, as_low, as_start_time, time, as_high_bar, as_low_bar)
+        g_session_data_map.put("Asia-" + str.tostring(trading_day_id), session_data)
+
+    is_london_end = is_in_session(LONDON_SESSION_DEF)[1] and not in_london
+    if is_london_end
+        session_data = SessionData.new(lo_high, lo_low, lo_start_time, time, lo_high_bar, lo_low_bar)
+        g_session_data_map.put("London-" + str.tostring(trading_day_id), session_data)
+
+    is_ny_am_end = is_in_session(NY_AM_SESSION_DEF)[1] and not in_ny_am
+    if is_ny_am_end
+        session_data = SessionData.new(na_high, na_low, na_start_time, time, na_high_bar, na_low_bar)
+        g_session_data_map.put("NY_AM-" + str.tostring(trading_day_id), session_data)
+
+    is_ny_pm_end = is_in_session(NY_PM_SESSION_DEF)[1] and not in_ny_pm
+    if is_ny_pm_end
+        session_data = SessionData.new(np_high, np_low, np_start_time, time, np_high_bar, np_low_bar)
+        g_session_data_map.put("NY_PM-" + str.tostring(trading_day_id), session_data)
+
 
     // --- Real-time Line Management ---
     // Unconditionally extend lines first
@@ -398,6 +431,50 @@ manage_sessions_and_lines(trading_day_id) =>
     0
 
 // ---------------------------------------- Marker Drawing Logic --------------------------------------------------
+// Function to retrieve main session data from the global map
+get_main_session_data(session_id) =>
+    g_session_data_map.get(session_id)
+
+draw_main_session_markers(session_def, session_id_prefix, trading_day_id, index) =>
+    in_session = is_in_session(session_def)
+    previously_in = is_in_session(session_def)[1]
+    is_session_end = na(previously_in ? 1 : 0) ? false : previously_in and not in_session
+
+    if is_session_end and timeframe.period == "1"
+        session_id = session_id_prefix + "-" + str.tostring(trading_day_id)
+        retrieved_data = get_main_session_data(session_id)
+        if not na(retrieved_data.start_time)
+            // --- High Marker Box ---
+            box.delete(g_main_session_high_marker_boxes.get(index))
+            line.delete(g_main_session_high_midlines.get(index))
+
+            high_offset = bar_index - retrieved_data.high_bar_index
+            high_candle_high = high[high_offset]
+            high_candle_low = low[high_offset]
+
+            new_high_box = box.new(left=retrieved_data.start_time, top=high_candle_high, right=retrieved_data.end_time, bottom=high_candle_low, border_color=h_box_border_color, bgcolor=h_box_bg_color, border_width=h_box_border_width, xloc=xloc.bar_time)
+            g_main_session_high_marker_boxes.set(index, new_high_box)
+
+            mid_price_high = (high_candle_high + high_candle_low) / 2
+            new_high_midline = line.new(x1=retrieved_data.start_time, y1=mid_price_high, x2=retrieved_data.end_time, y2=mid_price_high, xloc=xloc.bar_time, color=mid_line_color, style=get_line_style(mid_line_style), width=mid_line_width)
+            g_main_session_high_midlines.set(index, new_high_midline)
+
+            // --- Low Marker Box ---
+            box.delete(g_main_session_low_marker_boxes.get(index))
+            line.delete(g_main_session_low_midlines.get(index))
+
+            low_offset = bar_index - retrieved_data.low_bar_index
+            low_candle_high = high[low_offset]
+            low_candle_low = low[low_offset]
+
+            new_low_box = box.new(left=retrieved_data.start_time, top=low_candle_high, right=retrieved_data.end_time, bottom=low_candle_low, border_color=l_box_border_color, bgcolor=l_box_bg_color, border_width=l_box_border_width, xloc=xloc.bar_time)
+            g_main_session_low_marker_boxes.set(index, new_low_box)
+
+            mid_price_low = (low_candle_high + low_candle_low) / 2
+            new_low_midline = line.new(x1=retrieved_data.start_time, y1=mid_price_low, x2=retrieved_data.end_time, y2=mid_price_low, xloc=xloc.bar_time, color=mid_line_color, style=get_line_style(mid_line_style), width=mid_line_width)
+            g_main_session_low_midlines.set(index, new_low_midline)
+    0
+
 draw_cycle_markers(session_def, cycle_id, cycle_index) =>
     in_session = is_in_session(session_def)
     previously_in = is_in_session(session_def)[1]
@@ -589,8 +666,36 @@ if can_draw
         future_time = timestamp(TIMEZONE, year(time[1]), month(time[1]), dayofmonth(time[1]) + NY_PM_DAY_OFFSET, NY_PM_END_HOUR, NY_PM_END_MIN)
         ny_pm_sep_line := line.new(future_time, low, future_time, high, xloc=xloc.bar_time, extend=extend.both, color=sep_line_color, style=separator_style, width=sep_line_width)
 
-    // Main Sessions
+    // --- DATA TRACKING LOGIC ---
+    // Manage real-time lines and track/store session data
+    if show_session_hl or show_sessions
+        manage_sessions_and_lines(trading_day_id)
+
+    // Track sub-cycle data
+    if timeframe.period == "1"
+        if use_asia and as_show_90
+            track_and_store_cycle_data(0, "1800-1930", "Asia-1-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(1, "1930-2100", "Asia-2-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(2, "2100-2230", "Asia-3-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(3, "2230-0000", "Asia-4-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(4, "0000-0130", "Asia-5-" + str.tostring(trading_day_id))
+        if use_london and lo_show_90
+            track_and_store_cycle_data(5, "0230-0400", "London-1-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(6, "0400-0530", "London-2-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(7, "0530-0700", "London-3-" + str.tostring(trading_day_id))
+        if use_ny_am and na_show_90
+            track_and_store_cycle_data(8, "0700-0830", "NY-AM-1-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(9, "0830-1000", "NY-AM-2-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(10, "1000-1130", "NY-AM-3-" + str.tostring(trading_day_id))
+        if use_ny_pm and np_show_90
+            track_and_store_cycle_data(11, "1130-1300", "NY-PM-1-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(12, "1300-1430", "NY-PM-2-" + str.tostring(trading_day_id))
+            track_and_store_cycle_data(13, "1430-1600", "NY-PM-3-" + str.tostring(trading_day_id))
+
+    // --- DRAWING LOGIC ---
+    // 1. Draw Background Session Boxes
     if show_sessions
+        // Main Sessions
         if use_asia
             draw_session_box(ASIA_SESSION_DEF, as_box_color, false)
         if use_london
@@ -600,108 +705,99 @@ if can_draw
         if use_ny_pm
             draw_session_box(NY_PM_SESSION_DEF, np_box_color, false)
 
-    // --- Session High/Low Line Management ---
-    if show_session_hl
-        manage_sessions_and_lines(trading_day_id)
+        // Sub-Cycles
+        // Asia
+        draw_session_box("1800-1930", use_asia and as_show_90 ? as_90a_color : na, true)
+        draw_session_box("1930-2100", use_asia and as_show_90 ? as_90b_color : na, true)
+        draw_session_box("2100-2230", use_asia and as_show_90 ? as_90a_color : na, true)
+        draw_session_box("2230-0000", use_asia and as_show_90 ? as_90b_color : na, true)
+        draw_session_box("0000-0130", use_asia and as_show_90 ? as_90a_color : na, true)
+        draw_session_box("1800-1830", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("1830-1900", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("1900-1930", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("1930-2000", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("2000-2030", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("2030-2100", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("2100-2130", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("2130-2200", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("2200-2230", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("2230-2300", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("2300-2330", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("2330-0000", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("0000-0030", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("0030-0100", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("0100-0130", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("0130-0200", use_asia and as_show_30 ? as_30_color : na, true)
+        draw_session_box("0200-0230", use_asia and as_show_30 ? as_30_color : na, true)
+        // London
+        draw_session_box("0230-0400", use_london and lo_show_90 ? lo_90a_color : na, true)
+        draw_session_box("0400-0530", use_london and lo_show_90 ? lo_90b_color : na, true)
+        draw_session_box("0530-0700", use_london and lo_show_90 ? lo_90a_color : na, true)
+        draw_session_box("0230-0300", use_london and lo_show_30 ? lo_30_color : na, true)
+        draw_session_box("0300-0330", use_london and lo_show_30 ? lo_30_color : na, true)
+        draw_session_box("0330-0400", use_london and lo_show_30 ? lo_30_color : na, true)
+        draw_session_box("0400-0430", use_london and lo_show_30 ? lo_30_color : na, true)
+        draw_session_box("0430-0500", use_london and lo_show_30 ? lo_30_color : na, true)
+        draw_session_box("0500-0530", use_london and lo_show_30 ? lo_30_color : na, true)
+        draw_session_box("0530-0600", use_london and lo_show_30 ? lo_30_color : na, true)
+        draw_session_box("0600-0630", use_london and lo_show_30 ? lo_30_color : na, true)
+        draw_session_box("0630-0700", use_london and lo_show_30 ? lo_30_color : na, true)
+        // NY AM
+        draw_session_box("0700-0830", use_ny_am and na_show_90 ? na_90a_color : na, true)
+        draw_session_box("0830-1000", use_ny_am and na_show_90 ? na_90b_color : na, true)
+        draw_session_box("1000-1130", use_ny_am and na_show_90 ? na_90a_color : na, true)
+        draw_session_box("0700-0730", use_ny_am and na_show_30 ? na_30_color : na, true)
+        draw_session_box("0730-0800", use_ny_am and na_show_30 ? na_30_color : na, true)
+        draw_session_box("0800-0830", use_ny_am and na_show_30 ? na_30_color : na, true)
+        draw_session_box("0830-0900", use_ny_am and na_show_30 ? na_30_color : na, true)
+        draw_session_box("0900-0930", use_ny_am and na_show_30 ? na_30_color : na, true)
+        draw_session_box("0930-1000", use_ny_am and na_show_30 ? na_30_color : na, true)
+        draw_session_box("1000-1030", use_ny_am and na_show_30 ? na_30_color : na, true)
+        draw_session_box("1030-1100", use_ny_am and na_show_30 ? na_30_color : na, true)
+        draw_session_box("1100-1130", use_ny_am and na_show_30 ? na_30_color : na, true)
+        // NY PM
+        draw_session_box("1130-1300", use_ny_pm and np_show_90 ? np_90a_color : na, true)
+        draw_session_box("1300-1430", use_ny_pm and np_show_90 ? np_90b_color : na, true)
+        draw_session_box("1430-1600", use_ny_pm and np_show_90 ? np_90a_color : na, true)
+        draw_session_box("1130-1200", use_ny_pm and np_show_30 ? np_30_color : na, true)
+        draw_session_box("1200-1230", use_ny_pm and np_show_30 ? np_30_color : na, true)
+        draw_session_box("1230-1300", use_ny_pm and np_show_30 ? np_30_color : na, true)
+        draw_session_box("1300-1330", use_ny_pm and np_show_30 ? np_30_color : na, true)
+        draw_session_box("1330-1400", use_ny_pm and np_show_30 ? np_30_color : na, true)
+        draw_session_box("1400-1430", use_ny_pm and np_show_30 ? np_30_color : na, true)
+        draw_session_box("1430-1500", use_ny_pm and np_show_30 ? np_30_color : na, true)
+        draw_session_box("1500-1530", use_ny_pm and np_show_30 ? np_30_color : na, true)
+        draw_session_box("1530-1600", use_ny_pm and np_show_30 ? np_30_color : na, true)
 
-    // --- Sub-Cycle Data Tracking and Marker Drawing ---
+    // 2. Draw Markers and Midlines
+    if show_sessions
+        // Main Session Markers
+        if use_asia
+            draw_main_session_markers(ASIA_SESSION_DEF, "Asia", trading_day_id, 0)
+        if use_london
+            draw_main_session_markers(LONDON_SESSION_DEF, "London", trading_day_id, 1)
+        if use_ny_am
+            draw_main_session_markers(NY_AM_SESSION_DEF, "NY_AM", trading_day_id, 2)
+        if use_ny_pm
+            draw_main_session_markers(NY_PM_SESSION_DEF, "NY_PM", trading_day_id, 3)
+
+    // Sub-Cycle Markers
     if timeframe.period == "1"
         if use_asia and as_show_90
-            track_and_store_cycle_data(0, "1800-1930", "Asia-1-" + str.tostring(trading_day_id))
             draw_cycle_markers("1800-1930", "Asia-1-" + str.tostring(trading_day_id), 0)
-            track_and_store_cycle_data(1, "1930-2100", "Asia-2-" + str.tostring(trading_day_id))
             draw_cycle_markers("1930-2100", "Asia-2-" + str.tostring(trading_day_id), 1)
-            track_and_store_cycle_data(2, "2100-2230", "Asia-3-" + str.tostring(trading_day_id))
             draw_cycle_markers("2100-2230", "Asia-3-" + str.tostring(trading_day_id), 2)
-            track_and_store_cycle_data(3, "2230-0000", "Asia-4-" + str.tostring(trading_day_id))
             draw_cycle_markers("2230-0000", "Asia-4-" + str.tostring(trading_day_id), 3)
-            track_and_store_cycle_data(4, "0000-0130", "Asia-5-" + str.tostring(trading_day_id))
             draw_cycle_markers("0000-0130", "Asia-5-" + str.tostring(trading_day_id), 4)
-
         if use_london and lo_show_90
-            track_and_store_cycle_data(5, "0230-0400", "London-1-" + str.tostring(trading_day_id))
             draw_cycle_markers("0230-0400", "London-1-" + str.tostring(trading_day_id), 5)
-            track_and_store_cycle_data(6, "0400-0530", "London-2-" + str.tostring(trading_day_id))
             draw_cycle_markers("0400-0530", "London-2-" + str.tostring(trading_day_id), 6)
-            track_and_store_cycle_data(7, "0530-0700", "London-3-" + str.tostring(trading_day_id))
             draw_cycle_markers("0530-0700", "London-3-" + str.tostring(trading_day_id), 7)
-
         if use_ny_am and na_show_90
-            track_and_store_cycle_data(8, "0700-0830", "NY-AM-1-" + str.tostring(trading_day_id))
             draw_cycle_markers("0700-0830", "NY-AM-1-" + str.tostring(trading_day_id), 8)
-            track_and_store_cycle_data(9, "0830-1000", "NY-AM-2-" + str.tostring(trading_day_id))
             draw_cycle_markers("0830-1000", "NY-AM-2-" + str.tostring(trading_day_id), 9)
-            track_and_store_cycle_data(10, "1000-1130", "NY-AM-3-" + str.tostring(trading_day_id))
             draw_cycle_markers("1000-1130", "NY-AM-3-" + str.tostring(trading_day_id), 10)
-
         if use_ny_pm and np_show_90
-            track_and_store_cycle_data(11, "1130-1300", "NY-PM-1-" + str.tostring(trading_day_id))
             draw_cycle_markers("1130-1300", "NY-PM-1-" + str.tostring(trading_day_id), 11)
-            track_and_store_cycle_data(12, "1300-1430", "NY-PM-2-" + str.tostring(trading_day_id))
             draw_cycle_markers("1300-1430", "NY-PM-2-" + str.tostring(trading_day_id), 12)
-            track_and_store_cycle_data(13, "1430-1600", "NY-PM-3-" + str.tostring(trading_day_id))
             draw_cycle_markers("1430-1600", "NY-PM-3-" + str.tostring(trading_day_id), 13)
-
-    // Sub-Cycles
-    // Asia
-    draw_session_box("1800-1930", use_asia and as_show_90 ? as_90a_color : na, true)
-    draw_session_box("1930-2100", use_asia and as_show_90 ? as_90b_color : na, true)
-    draw_session_box("2100-2230", use_asia and as_show_90 ? as_90a_color : na, true)
-    draw_session_box("2230-0000", use_asia and as_show_90 ? as_90b_color : na, true)
-    draw_session_box("0000-0130", use_asia and as_show_90 ? as_90a_color : na, true)
-    draw_session_box("1800-1830", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("1830-1900", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("1900-1930", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("1930-2000", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("2000-2030", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("2030-2100", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("2100-2130", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("2130-2200", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("2200-2230", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("2230-2300", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("2300-2330", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("2330-0000", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("0000-0030", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("0030-0100", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("0100-0130", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("0130-0200", use_asia and as_show_30 ? as_30_color : na, true)
-    draw_session_box("0200-0230", use_asia and as_show_30 ? as_30_color : na, true)
-    // London
-    draw_session_box("0230-0400", use_london and lo_show_90 ? lo_90a_color : na, true)
-    draw_session_box("0400-0530", use_london and lo_show_90 ? lo_90b_color : na, true)
-    draw_session_box("0530-0700", use_london and lo_show_90 ? lo_90a_color : na, true)
-    draw_session_box("0230-0300", use_london and lo_show_30 ? lo_30_color : na, true)
-    draw_session_box("0300-0330", use_london and lo_show_30 ? lo_30_color : na, true)
-    draw_session_box("0330-0400", use_london and lo_show_30 ? lo_30_color : na, true)
-    draw_session_box("0400-0430", use_london and lo_show_30 ? lo_30_color : na, true)
-    draw_session_box("0430-0500", use_london and lo_show_30 ? lo_30_color : na, true)
-    draw_session_box("0500-0530", use_london and lo_show_30 ? lo_30_color : na, true)
-    draw_session_box("0530-0600", use_london and lo_show_30 ? lo_30_color : na, true)
-    draw_session_box("0600-0630", use_london and lo_show_30 ? lo_30_color : na, true)
-    draw_session_box("0630-0700", use_london and lo_show_30 ? lo_30_color : na, true)
-    // NY AM
-    draw_session_box("0700-0830", use_ny_am and na_show_90 ? na_90a_color : na, true)
-    draw_session_box("0830-1000", use_ny_am and na_show_90 ? na_90b_color : na, true)
-    draw_session_box("1000-1130", use_ny_am and na_show_90 ? na_90a_color : na, true)
-    draw_session_box("0700-0730", use_ny_am and na_show_30 ? na_30_color : na, true)
-    draw_session_box("0730-0800", use_ny_am and na_show_30 ? na_30_color : na, true)
-    draw_session_box("0800-0830", use_ny_am and na_show_30 ? na_30_color : na, true)
-    draw_session_box("0830-0900", use_ny_am and na_show_30 ? na_30_color : na, true)
-    draw_session_box("0900-0930", use_ny_am and na_show_30 ? na_30_color : na, true)
-    draw_session_box("0930-1000", use_ny_am and na_show_30 ? na_30_color : na, true)
-    draw_session_box("1000-1030", use_ny_am and na_show_30 ? na_30_color : na, true)
-    draw_session_box("1030-1100", use_ny_am and na_show_30 ? na_30_color : na, true)
-    draw_session_box("1100-1130", use_ny_am and na_show_30 ? na_30_color : na, true)
-    // NY PM
-    draw_session_box("1130-1300", use_ny_pm and np_show_90 ? np_90a_color : na, true)
-    draw_session_box("1300-1430", use_ny_pm and np_show_90 ? np_90b_color : na, true)
-    draw_session_box("1430-1600", use_ny_pm and np_show_90 ? np_90a_color : na, true)
-    draw_session_box("1130-1200", use_ny_pm and np_show_30 ? np_30_color : na, true)
-    draw_session_box("1200-1230", use_ny_pm and np_show_30 ? np_30_color : na, true)
-    draw_session_box("1230-1300", use_ny_pm and np_show_30 ? np_30_color : na, true)
-    draw_session_box("1300-1330", use_ny_pm and np_show_30 ? np_30_color : na, true)
-    draw_session_box("1330-1400", use_ny_pm and np_show_30 ? np_30_color : na, true)
-    draw_session_box("1400-1430", use_ny_pm and np_show_30 ? np_30_color : na, true)
-    draw_session_box("1430-1500", use_ny_pm and np_show_30 ? np_30_color : na, true)
-    draw_session_box("1500-1530", use_ny_pm and np_show_30 ? np_30_color : na, true)
-    draw_session_box("1530-1600", use_ny_pm and np_show_30 ? np_30_color : na, true)
