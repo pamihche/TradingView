@@ -99,6 +99,7 @@ enum TimeOn
     close = "close"
 
 type PeriodInstance
+    int startTime = na
     int startIndex = na
     int endIndex = na
     float high = na
@@ -135,6 +136,7 @@ type Period
     bool showBackground = false
     bool showToLevel = false
     array<PeriodInstance> instances = na
+    bool firstCycleStarted = false
 
 // ————— Function Declarations
 
@@ -422,7 +424,7 @@ addHighLowLines(PeriodInstance instance, string label, string suffixSeparator = 
 // @param index (simple int) Optional index for labeling
 // @returns New PeriodInstance
 newInstance(Period period, float h, float l) =>
-    PeriodInstance.new(startIndex = bar_index, high = h, low = l, highIndex = bar_index, lowIndex = bar_index)
+    PeriodInstance.new(startTime = time, startIndex = bar_index, high = h, low = l, highIndex = bar_index, lowIndex = bar_index)
 
 // @function Determines true open level for different periods
 // @param htf (simple string) Higher timeframe
@@ -690,44 +692,35 @@ for key in map.keys(periods)
                     currentCycle = numOfCycles > 0 ? array.get(cyclePeriod.instances, numOfCycles - 1) : na
 
                     // Check for new cycle
-                    bool newCycle = false
+                    bool cycleStartTrigger = inPeriod
                     if period.label == "AS"
-                        // Asia specific: 5 cycles, starts after 1hr gap with hardcoded times
-                        is_1900 = hour(time, TIMEZONE_NY) == 19 and minute(time, TIMEZONE_NY) == 0
-                        is_2030 = not is_1900 and hour(time, TIMEZONE_NY) == 20 and minute(time, TIMEZONE_NY) == 30
-                        is_2200 = not is_1900 and not is_2030 and hour(time, TIMEZONE_NY) == 22 and minute(time, TIMEZONE_NY) == 0
-                        is_2330 = not is_1900 and not is_2030 and not is_2200 and hour(time, TIMEZONE_NY) == 23 and minute(time, TIMEZONE_NY) == 30
-                        is_0100 = not is_1900 and not is_2030 and not is_2200 and not is_2330 and hour(time, TIMEZONE_NY) == 1 and minute(time, TIMEZONE_NY) == 0
+                        cycleStartTrigger := not na(time(timeframe.period, "1900-0230", TIMEZONE_NY))
 
-                        newCycle := (is_1900 and numOfCycles == 0) or (is_2030 and numOfCycles == 1) or (is_2200 and numOfCycles == 2) or (is_2330 and numOfCycles == 3) or (is_0100 and numOfCycles == 4)
+                    isFirstCycle = not period.firstCycleStarted and cycleStartTrigger
+                    bool isSubsequentCycle = false
+                    if period.firstCycleStarted and not na(currentCycle) and na(currentCycle.endIndex)
+                        isSubsequentCycle := time >= currentCycle.startTime + 90 * 60000
 
-                        if newCycle
-                            if not na(currentCycle)
-                                currentCycle.endIndex := bar_index[1]
-                                if not na(currentCycle.cycleEndLine)
-                                    currentCycle.cycleEndLine.delete()
-                            if numOfCycles < 5
-                                currentCycle := newInstance(cyclePeriod, high, low)
-                                addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
-                                cycleEndTime = time + 90 * 60000
-                                currentCycle.cycleEndLine := line.new(cycleEndTime, currentCycle.low, cycleEndTime, currentCycle.high, xloc=xloc.bar_time, extend=extend.both, color=cyclePeriod.color, style=line.style_dashed)
-                                array.push(cyclePeriod.instances, currentCycle)
-                                numOfCycles := array.size(cyclePeriod.instances)
-                    else
-                        // Standard sessions: 3 cycles, no gap
-                        newCycle := ta.change(time(cyclePeriod.period, TIMEZONE_NY), 1) > 0
-                        if newCycle or na(currentCycle)
-                            if not na(currentCycle)
-                                currentCycle.endIndex := bar_index[1]
-                                if not na(currentCycle.cycleEndLine)
-                                    currentCycle.cycleEndLine.delete()
-                            if numOfCycles < 3
-                                currentCycle := newInstance(cyclePeriod, high, low)
-                                addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
-                                cycleEndTime = time + 90 * 60000
-                                currentCycle.cycleEndLine := line.new(cycleEndTime, currentCycle.low, cycleEndTime, currentCycle.high, xloc=xloc.bar_time, extend=extend.both, color=cyclePeriod.color, style=line.style_dashed)
-                                array.push(cyclePeriod.instances, currentCycle)
-                                numOfCycles := array.size(cyclePeriod.instances)
+                    newCycle = isFirstCycle or isSubsequentCycle
+
+                    if newCycle
+                        if not na(currentCycle)
+                            currentCycle.endIndex := bar_index[1]
+                            if not na(currentCycle.cycleEndLine)
+                                currentCycle.cycleEndLine.delete()
+
+                        // Determine cycle limit
+                        int cycleLimit = period.label == "AS" ? 5 : 3
+
+                        if numOfCycles < cycleLimit
+                            currentCycle := newInstance(cyclePeriod, high, low)
+                            if isFirstCycle
+                                period.firstCycleStarted := true // Set the flag after creating the first cycle
+                            addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
+                            cycleEndTime = time + 90 * 60000
+                            currentCycle.cycleEndLine := line.new(cycleEndTime, currentCycle.low, cycleEndTime, currentCycle.high, xloc=xloc.bar_time, extend=extend.both, color=cyclePeriod.color, style=line.style_dashed)
+                            array.push(cyclePeriod.instances, currentCycle)
+                            numOfCycles := array.size(cyclePeriod.instances)
 
                     // Update current cycle high line if a cycle is active
                     if not na(currentCycle)
@@ -777,6 +770,7 @@ for key in map.keys(periods)
 
                     // Close open period
                     openInstance.endIndex := bar_index[1]
+                    period.firstCycleStarted := false // Reset for next session
                     if period.timeOn == TimeOn.close
                         openInstance.timeLabel := getTimeLabel(period)
 
