@@ -118,6 +118,7 @@ type PeriodInstance
     int toIndex = na
     line toLine = na
     label toLabel = na
+    line cycleEndLine = na
 
 type Period
     string period = na
@@ -535,7 +536,10 @@ dropExcessiveInstances(array<PeriodInstance> instances, int maxInstances = na) =
             droppedInstance.lowLine.delete()
             droppedInstance.lowLabel.delete()
             dropToLine(droppedInstance)
-            droppedInstance.background.delete()
+            if not na(droppedInstance.background)
+                droppedInstance.background.delete()
+            if not na(droppedInstance.cycleEndLine)
+                droppedInstance.cycleEndLine.delete()
 
 // @function Determines the time label for a period
 // @param period (Period) Period configuration
@@ -634,7 +638,8 @@ for key in map.keys(periods)
                     openInstance := newInstance(period, high, low)
                     if period.timeOn == TimeOn.open
                         openInstance.timeLabel := getTimeLabel(period)
-                    addBackground(openInstance, period.color)
+                    if period.showBackground
+                        addBackground(openInstance, period.color)
                     array.push(period.instances, openInstance)
                     numOfInstances := array.size(period.instances)
                     // Update historical instances
@@ -692,9 +697,13 @@ for key in map.keys(periods)
                         if newCycle or na(currentCycle)
                             if not na(currentCycle)
                                 currentCycle.endIndex := bar_index[1]
+                                if not na(currentCycle.cycleEndLine)
+                                    currentCycle.cycleEndLine.delete()
                             if numOfCycles < 5
                                 currentCycle := newInstance(cyclePeriod, high, low)
                                 addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
+                                cycleEndTime = time + 90 * 60000
+                                currentCycle.cycleEndLine := line.new(cycleEndTime, currentCycle.low, cycleEndTime, currentCycle.high, xloc=xloc.bar_time, extend=extend.both, color=cyclePeriod.color, style=line.style_dashed)
                                 array.push(cyclePeriod.instances, currentCycle)
                                 numOfCycles := array.size(cyclePeriod.instances)
                     else
@@ -703,9 +712,13 @@ for key in map.keys(periods)
                         if newCycle or na(currentCycle)
                             if not na(currentCycle)
                                 currentCycle.endIndex := bar_index[1]
+                                if not na(currentCycle.cycleEndLine)
+                                    currentCycle.cycleEndLine.delete()
                             if numOfCycles < 3
                                 currentCycle := newInstance(cyclePeriod, high, low)
                                 addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
+                                cycleEndTime = time + 90 * 60000
+                                currentCycle.cycleEndLine := line.new(cycleEndTime, currentCycle.low, cycleEndTime, currentCycle.high, xloc=xloc.bar_time, extend=extend.both, color=cyclePeriod.color, style=line.style_dashed)
                                 array.push(cyclePeriod.instances, currentCycle)
                                 numOfCycles := array.size(cyclePeriod.instances)
 
