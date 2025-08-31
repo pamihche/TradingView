@@ -692,9 +692,16 @@ for key in map.keys(periods)
                     // Check for new cycle
                     bool newCycle = false
                     if period.label == "AS"
-                        // Asia specific: 5 cycles, starts after 1hr gap
-                        newCycle := ta.change(time(cyclePeriod.period, "1900-0230", TIMEZONE_NY), 1) > 0
-                        if newCycle or na(currentCycle)
+                        // Asia specific: 5 cycles, starts after 1hr gap with hardcoded times
+                        is_1900 = hour(time, TIMEZONE_NY) == 19 and minute(time, TIMEZONE_NY) == 0
+                        is_2030 = not is_1900 and hour(time, TIMEZONE_NY) == 20 and minute(time, TIMEZONE_NY) == 30
+                        is_2200 = not is_1900 and not is_2030 and hour(time, TIMEZONE_NY) == 22 and minute(time, TIMEZONE_NY) == 0
+                        is_2330 = not is_1900 and not is_2030 and not is_2200 and hour(time, TIMEZONE_NY) == 23 and minute(time, TIMEZONE_NY) == 30
+                        is_0100 = not is_1900 and not is_2030 and not is_2200 and not is_2330 and hour(time, TIMEZONE_NY) == 1 and minute(time, TIMEZONE_NY) == 0
+
+                        newCycle := (is_1900 and numOfCycles == 0) or (is_2030 and numOfCycles == 1) or (is_2200 and numOfCycles == 2) or (is_2330 and numOfCycles == 3) or (is_0100 and numOfCycles == 4)
+
+                        if newCycle
                             if not na(currentCycle)
                                 currentCycle.endIndex := bar_index[1]
                                 if not na(currentCycle.cycleEndLine)
