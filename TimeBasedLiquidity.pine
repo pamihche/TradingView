@@ -1,0 +1,813 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © OGDubsky
+
+//@version=6
+indicator("Time-based Liquidity", overlay=true)
+
+// ————— Constants
+const int MAX_BARS_IN_PAST = 9999
+const string TIMEZONE_NY = "America/New_York"
+const string SESSION_ASIA = "1800-0230"
+const string SESSION_LONDON = "0230-0700"
+const string SESSION_NY_AM = "0700-1130"
+const string SESSION_NY_PM = "1130-1600"
+const color COLOR_TRANSPARENT = color.new(#FFFFFF, 100)
+const color COLOR_BACKGROUND = color.new(color.gray, 95)
+
+// ————— Inputs
+// Previous Month High/Low
+bool showMonthInput = input.bool(true, "Show PMH/PML", group="Previous Month High/Low")
+bool monthAlertInput = input.bool(false, "Alert when crossed", group="Previous Month High/Low")
+color monthColorInput = input.color(color.gray, "Color", group="Previous Month High/Low")
+string monthStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Month High/Low")
+int monthWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Month High/Low")
+bool showMonthToLevelInput = input.bool(true, "Show true open", group="Previous Month High/Low")
+
+// Previous Week High/Low
+bool showWeekInput = input.bool(true, "Show PWH/PWL", group="Previous Week High/Low")
+bool weekAlertInput = input.bool(false, "Alert when crossed", group="Previous Week High/Low")
+color weekColorInput = input.color(color.gray, "Color", group="Previous Week High/Low")
+string weekStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Week High/Low")
+int weekWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Week High/Low")
+bool showWeekToLevelInput = input.bool(true, "Show true open", group="Previous Week High/Low")
+
+// Previous Day High/Low
+bool showDayInput = input.bool(true, "Show PDH/PDL", group="Previous Day High/Low")
+bool dayAlertInput = input.bool(false, "Alert when crossed", group="Previous Day High/Low")
+color dayColorInput = input.color(color.gray, "Color", group="Previous Day High/Low")
+string dayStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Day High/Low")
+int dayWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Day High/Low")
+bool showDayToLevelInput = input.bool(true, "Show true open", group="Previous Day High/Low")
+
+// Asia Session High/Low
+bool showAsiaInput = input.bool(true, "Show session high/low", group="Asia Session High/Low")
+bool asiaAlertInput = input.bool(false, "Alert when crossed", group="Asia Session High/Low")
+color asiaColorInput = input.color(color.blue, "Color", group="Asia Session High/Low")
+string asiaStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Asia Session High/Low")
+int asiaWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Asia Session High/Low")
+bool showAsiaToLevelInput = input.bool(true, "Show true open", group="Asia Session High/Low")
+bool showAsiaBackgroundInput = input.bool(false, "Show background", group="Asia Session High/Low")
+
+// London Session High/Low
+bool showLondonInput = input.bool(true, "Show session high/low", group="London Session High/Low")
+bool londonAlertInput = input.bool(false, "Alert when crossed", group="London Session High/Low")
+color londonColorInput = input.color(color.purple, "Color", group="London Session High/Low")
+string londonStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="London Session High/Low")
+int londonWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="London Session High/Low")
+bool showLondonToLevelInput = input.bool(true, "Show true open", group="London Session High/Low")
+bool showLondonBackgroundInput = input.bool(false, "Show background", group="London Session High/Low")
+
+// NY Morning Session High/Low
+bool showNYAMInput = input.bool(true, "Show session high/low", group="NY Morning Session High/Low")
+bool nyamAlertInput = input.bool(false, "Alert when crossed", group="NY Morning Session High/Low")
+color nyamColorInput = input.color(color.orange, "Color", group="NY Morning Session High/Low")
+string nyamStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="NY Morning Session High/Low")
+int nyamWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="NY Morning Session High/Low")
+bool showNYAMToLevelInput = input.bool(true, "Show true open", group="NY Morning Session High/Low")
+bool showNYAMBackgroundInput = input.bool(false, "Show background", group="NY Morning Session High/Low")
+
+// NY Afternoon Session High/Low
+bool showNYPMInput = input.bool(true, "Show session high/low", group="NY Afternoon Session High/Low")
+bool nypmAlertInput = input.bool(false, "Alert when crossed", group="NY Afternoon Session High/Low")
+color nypmColorInput = input.color(color.fuchsia, "Color", group="NY Afternoon Session High/Low")
+string nypmStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="NY Afternoon Session High/Low")
+int nypmWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="NY Afternoon Session High/Low")
+bool showNYPMToLevelInput = input.bool(true, "Show true open", group="NY Afternoon Session High/Low")
+bool showNYPMBackgroundInput = input.bool(false, "Show background", group="NY Afternoon Session High/Low")
+
+// Current Session Cycles
+bool showCyclesInput = input.bool(true, "Show current session cycles", group="Current Session Cycles")
+bool cyclesAlertInput = input.bool(false, "Alert when crossed", group="Current Session Cycles")
+string cyclesStyleInput = input.string("dotted", "Line Style", options=["solid", "dashed", "dotted"], group="Current Session Cycles")
+int cyclesWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Current Session Cycles")
+
+// True Open Settings
+bool toAlertInput = input.bool(false, "Alert when closed through", group="True Open Settings")
+string toStyleInput = input.string("dashed", "Line Style", options=["solid", "dashed", "dotted"], group="True Open Settings")
+int toWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="True Open Settings")
+
+// Further Settings
+int historicalHtfInstancesInput = input.int(1, "Historical HTF periods", minval=1, maxval=10, group="Further Settings")
+int historicalLtfInstancesInput = input.int(1, "Historical intraday periods", minval=1, maxval=10, group="Further Settings")
+bool showLabelsInput = input.bool(true, "Show labels", group="Further Settings")
+string anchorInput = input.string("period", "Line anchor", options=["period", "bar"], group="Further Settings")
+string labelSizeInput = input.string("tiny", "Label size", options=["normal", "small", "tiny"], group="Further Settings")
+
+// ————— Type Definitions
+enum TimeOn
+    open = "open"
+    close = "close"
+
+type PeriodInstance
+    int startIndex = na
+    int endIndex = na
+    float high = na
+    float low = na
+    int highIndex = na
+    int lowIndex = na
+    line highLine = na
+    label highLabel = na
+    int highMitigationIndex = na
+    line lowLine = na
+    label lowLabel = na
+    int lowMitigationIndex = na
+    box background = na
+    string timeLabel = na
+    // True open data
+    float toLevel = na
+    int toIndex = na
+    line toLine = na
+    label toLabel = na
+
+type Period
+    string period = na
+    string session = na
+    string quarterTf = na
+    string label = na
+    bool intraday = true
+    string suffixSeparator = ""
+    color color = na
+    string style = na
+    int width = 1
+    bool alert = false
+    TimeOn timeOn = na
+    bool showBackground = false
+    bool showToLevel = false
+    array<PeriodInstance> instances = na
+
+// ————— Function Declarations
+
+// @function Converts string size to Pine Script size constant
+// @param sizeStr (simple string) Size string ("normal", "small", "tiny")
+// @returns Pine Script size constant
+toSize(string sizeStr) =>
+    switch sizeStr
+        "normal" => size.normal
+        "small" => size.small
+        "tiny" => size.tiny
+
+// @function Converts string style to Pine Script line style constant
+// @param styleStr (simple string) Style string ("solid", "dashed", "dotted")
+// @returns Pine Script line style constant
+toStyle(string styleStr) =>
+    switch styleStr
+        "solid" => line.style_solid
+        "dashed" => line.style_dashed
+        "dotted" => line.style_dotted
+
+// @function Sets up period configurations based on user inputs
+// @returns Map containing all configured periods
+setUpPeriods() =>
+    periods = map.new<string, Period>()
+
+    // Previous month
+    if showMonthInput
+        pm = Period.new()
+        pm.period := "M"
+        pm.quarterTf := "W"
+        pm.intraday := false
+        pm.label := "PM"
+        pm.color := monthColorInput
+        pm.style := toStyle(monthStyleInput)
+        pm.width := monthWidthInput
+        pm.alert := monthAlertInput
+        pm.timeOn := TimeOn.open
+        pm.showToLevel := showMonthToLevelInput
+        pm.instances := array.new<PeriodInstance>()
+        periods.put("PreviousMonth", pm)
+
+    // Previous week
+    if showWeekInput
+        pw = Period.new()
+        pw.period := "W"
+        pw.quarterTf := "D"
+        pw.intraday := false
+        pw.label := "PW"
+        pw.color := weekColorInput
+        pw.style := toStyle(weekStyleInput)
+        pw.width := weekWidthInput
+        pw.alert := weekAlertInput
+        pw.timeOn := TimeOn.open
+        pw.showToLevel := showWeekToLevelInput
+        pw.instances := array.new<PeriodInstance>()
+        periods.put("PreviousWeek", pw)
+
+    // Previous day
+    if showDayInput
+        pd = Period.new()
+        pd.period := "D"
+        pd.quarterTf := "360"
+        pd.intraday := false
+        pd.label := "PD"
+        pd.color := dayColorInput
+        pd.style := toStyle(dayStyleInput)
+        pd.width := dayWidthInput
+        pd.alert := dayAlertInput
+        pd.timeOn := TimeOn.close
+        pd.showToLevel := showDayToLevelInput
+        pd.instances := array.new<PeriodInstance>()
+        periods.put("PreviousDay", pd)
+
+    // Asia
+    if showAsiaInput
+        asia = Period.new()
+        asia.period := "510"
+        asia.quarterTf := "90"
+        asia.session := SESSION_ASIA
+        asia.label := "AS"
+        asia.suffixSeparator := "."
+        asia.color := asiaColorInput
+        asia.style := toStyle(asiaStyleInput)
+        asia.width := asiaWidthInput
+        asia.alert := asiaAlertInput
+        asia.timeOn := TimeOn.open
+        asia.showBackground := showAsiaBackgroundInput
+        asia.showToLevel := showAsiaToLevelInput
+        asia.instances := array.new<PeriodInstance>()
+        periods.put("AS", asia)
+
+    // London
+    if showLondonInput
+        london = Period.new()
+        london.period := "270"
+        london.quarterTf := "90"
+        london.session := SESSION_LONDON
+        london.label := "LON"
+        london.suffixSeparator := "."
+        london.color := londonColorInput
+        london.style := toStyle(londonStyleInput)
+        london.width := londonWidthInput
+        london.alert := londonAlertInput
+        london.timeOn := TimeOn.open
+        london.showBackground := showLondonBackgroundInput
+        london.showToLevel := showLondonToLevelInput
+        london.instances := array.new<PeriodInstance>()
+        periods.put("LON", london)
+
+    // NY AM
+    if showNYAMInput
+        nyam = Period.new()
+        nyam.period := "270"
+        nyam.quarterTf := "90"
+        nyam.session := SESSION_NY_AM
+        nyam.label := "NYAM"
+        nyam.suffixSeparator := "."
+        nyam.color := nyamColorInput
+        nyam.style := toStyle(nyamStyleInput)
+        nyam.width := nyamWidthInput
+        nyam.alert := nyamAlertInput
+        nyam.timeOn := TimeOn.open
+        nyam.showBackground := showNYAMBackgroundInput
+        nyam.showToLevel := showNYAMToLevelInput
+        nyam.instances := array.new<PeriodInstance>()
+        periods.put("NYAM", nyam)
+
+    // NY PM
+    if showNYPMInput
+        nypm = Period.new()
+        nypm.period := "270"
+        nypm.quarterTf := "90"
+        nypm.session := SESSION_NY_PM
+        nypm.label := "NYPM"
+        nypm.suffixSeparator := "."
+        nypm.color := nypmColorInput
+        nypm.style := toStyle(nypmStyleInput)
+        nypm.width := nypmWidthInput
+        nypm.alert := nypmAlertInput
+        nypm.timeOn := TimeOn.open
+        nypm.showBackground := showNYPMBackgroundInput
+        nypm.showToLevel := showNYPMToLevelInput
+        nypm.instances := array.new<PeriodInstance>()
+        periods.put("NYPM", nypm)
+
+    periods
+
+// @function Sets up cycle periods for intraday sessions
+// @param periods (map<string, Period>) Map of main periods
+// @returns Map containing cycle periods
+setUpCycles(map<string, Period> periods) =>
+    cycles = map.new<string, Period>()
+
+    for key in periods.keys()
+        period = periods.get(key)
+        cycle = Period.new()
+        cycle.period := "90"
+        cycle.label := "C"
+        cycle.suffixSeparator := "."
+        cycle.color := period.color
+        cycle.style := toStyle(cyclesStyleInput)
+        cycle.width := cyclesWidthInput
+        cycle.alert := cyclesAlertInput
+        cycle.instances := array.new<PeriodInstance>()
+        cycles.put(period.label, cycle)
+
+    cycles
+
+// @function Triggers alert when price hits a level
+// @param label (simple string) Level label
+// @param level (simple string) Level type ("high" or "low")
+triggerAlert(string label, string level) =>
+    message = syminfo.ticker + ": Price hit " + label + " at " + str.tostring(close)
+    alert(message, alert.freq_once_per_bar)
+
+// @function Triggers alert when price closes through true open
+// @param label (simple string) Period label
+// @param direction (simple string) Direction ("above" or "below")
+triggerToAlert(string label, string direction) =>
+    message = syminfo.ticker + ": Price closed " + direction + " " + label + " True Open at " + str.tostring(close[1])
+    alert(message, alert.freq_once_per_bar)
+
+// @function Creates label text for high/low levels
+// @param label (simple string) Base label
+// @param suffixSeparator (simple string) Separator between label and level
+// @param level (simple string) Level type ("high" or "low")
+// @returns Formatted label string
+getLabel(string label, string suffixSeparator, string level) =>
+    label + suffixSeparator + (level == "high" ? "H" : "L")
+
+// @function Updates background box for active periods
+// @param instance (PeriodInstance) Period instance to update
+updateBackground(PeriodInstance instance) =>
+    if na(instance.endIndex) and not na(instance.background)
+        // Update the right edge of the box to current bar
+        newRightPoint = chart.point.from_index(bar_index, instance.background.get_bottom())
+        instance.background.set_bottom_right_point(newRightPoint)
+
+        // Update top and bottom if needed
+        if instance.high > instance.background.get_top()
+            newTopPoint = chart.point.from_index(instance.background.get_left(), instance.high)
+            instance.background.set_top_left_point(newTopPoint)
+        if instance.low < instance.background.get_bottom()
+            newBottomPoint = chart.point.from_index(instance.background.get_right(), instance.low)
+            instance.background.set_bottom_right_point(newBottomPoint)
+
+// @function Creates background box for period instance
+// @param instance (PeriodInstance) Period instance
+// @param lineColor (color) Color for the background
+addBackground(PeriodInstance instance, color lineColor) =>
+    topLeft = chart.point.from_index(instance.startIndex, instance.high)
+    bottomRight = chart.point.from_index(instance.startIndex, instance.low)
+    instance.background := box.new(
+      top_left = topLeft,
+      bottom_right = bottomRight,
+      border_width = 0,
+      xloc = xloc.bar_index,
+      bgcolor = color.new(lineColor, 95)
+      )
+
+// @function Adds high/low lines and labels to period instance
+// @param instance (PeriodInstance) Period instance
+// @param label (simple string) Label text
+// @param suffixSeparator (simple string) Separator for label
+// @param lineColor (color) Line color
+// @param lineStyle (simple string) Line style
+// @param lineWidth (simple int) Line width
+// @param showBackground (simple bool) Whether to show background
+addHighLowLines(PeriodInstance instance, string label, string suffixSeparator = "", color lineColor, string lineStyle, int lineWidth = 1, bool showBackground = false) =>
+    indexHighStart = anchorInput == "period" ? instance.startIndex : instance.highIndex
+    if bar_index - indexHighStart > MAX_BARS_IN_PAST
+        indexHighStart := bar_index - MAX_BARS_IN_PAST
+    indexLowStart = anchorInput == "period" ? instance.startIndex : instance.lowIndex
+    if bar_index - indexLowStart > MAX_BARS_IN_PAST
+        indexLowStart := bar_index - MAX_BARS_IN_PAST
+    h = instance.high
+    l = instance.low// High line
+    instance.highLine := line.new(
+      indexHighStart,
+      h,
+      indexHighStart,
+      h,
+      xloc.bar_index,
+      extend.none,
+      lineColor,
+      lineStyle,
+      width=lineWidth
+      )
+    if showLabelsInput
+        instance.highLabel := label.new(
+          indexHighStart, h,
+          getLabel(label, suffixSeparator, "high"),
+          xloc.bar_index, yloc.price,
+          COLOR_TRANSPARENT, label.style_label_lower_right,
+          lineColor, toSize(labelSizeInput), text.align_right
+          )
+
+    // Low line
+    instance.lowLine := line.new(
+      indexLowStart,
+      l,
+      indexLowStart,
+      l,
+      xloc.bar_index,
+      extend.none,
+      lineColor,
+      lineStyle,
+      width=lineWidth
+      )
+
+    if showLabelsInput
+        instance.lowLabel := label.new(
+          indexLowStart, l,
+          getLabel(label, suffixSeparator, "low"),
+          xloc.bar_index, yloc.price,
+          COLOR_TRANSPARENT, label.style_label_upper_right,
+          lineColor, toSize(labelSizeInput), text.align_right
+          )
+
+// @function Creates new period instance
+// @param period (Period) Period configuration
+// @param h (simple float) High value
+// @param l (simple float) Low value
+// @param index (simple int) Optional index for labeling
+// @returns New PeriodInstance
+newInstance(Period period, float h, float l) =>
+    PeriodInstance.new(startIndex = bar_index, high = h, low = l, highIndex = bar_index, lowIndex = bar_index)
+
+// @function Determines true open level for different periods
+// @param htf (simple string) Higher timeframe
+// @param ltf (simple string) Lower timeframe
+// @param session (simple string) Optional session string
+// @param timezone (simple string) Timezone
+// @returns True open level or na
+getToLevel(string htf, string ltf, string session = na, string timezone) =>
+    float trueOpen = na
+
+    // Detect transitions
+    bool newHtfPeriod = na(session) ?
+      ta.change(time(htf, timezone), 1) > 0 :
+      ta.change(time(htf, session, timezone), 1) > 0
+
+    bool newLtfPeriod = ta.change(time(ltf, timezone), 1) > 0
+
+    // Return on new LTF period when HTF is not new
+    if newLtfPeriod and not newHtfPeriod
+        trueOpen := open
+
+    trueOpen
+
+// @function Creates true open line and label
+// @param instance (PeriodInstance) Period instance
+// @param label (simple string) Label text
+// @param lineColor (color) Line color
+// @param lineStyle (simple string) Line style
+// @param lineWidth (simple int) Line width
+addToLine(PeriodInstance instance, string label, color lineColor, string lineStyle, int lineWidth) =>
+    if not na(instance.toLevel) and not na(instance.toIndex)
+        endIndex = na(instance.endIndex) ? instance.toIndex + 1 : math.min(instance.toIndex + 1, instance.endIndex)
+        instance.toLine := line.new(
+          instance.toIndex, instance.toLevel,
+          endIndex, instance.toLevel,
+          xloc.bar_index, extend.none,
+          lineColor, toStyle(lineStyle), width=lineWidth
+          )
+        if showLabelsInput
+            instance.toLabel := label.new(
+              endIndex, instance.toLevel,
+              label + ".TO",
+              xloc.bar_index, yloc.price,
+              COLOR_TRANSPARENT, label.style_label_left,
+              lineColor, toSize(labelSizeInput), text.align_left
+              )
+
+// @function Updates line length and position
+// @param instance (PeriodInstance) Period instance
+// @param whichLine (simple string) Which line to update ("high", "low", "to")
+// @param startIndex (simple int) Optional start index
+// @param y (simple float) Optional y position
+updateLine(PeriodInstance instance, string whichLine, int startIndex = na, float y = na) =>
+    line lineObj = na
+    label labelObj = na
+    wasMitigated = false
+    switch str.lower(whichLine)
+        "high" =>
+            lineObj := instance.highLine
+            labelObj := instance.highLabel
+            wasMitigated := not na(instance.highMitigationIndex)
+        "low" =>
+            lineObj := instance.lowLine
+            labelObj := instance.lowLabel
+            wasMitigated := not na(instance.lowMitigationIndex)
+        "to" =>
+            lineObj := instance.toLine
+            labelObj := instance.toLabel
+            wasMitigated := not na(instance.endIndex)
+    if not na(lineObj) and not wasMitigated
+        lineObj.set_x2(bar_index)
+        if not na(startIndex)
+            lineObj.set_x1(startIndex)
+        if bar_index - lineObj.get_x1() > MAX_BARS_IN_PAST
+            lineObj.set_x1(bar_index - MAX_BARS_IN_PAST)
+        if not na(y)
+            lineObj.set_y1(y)
+            lineObj.set_y2(y)
+        if not na(labelObj)
+            labelObj.set_x(bar_index)
+            if not na(y)
+                labelObj.set_y(y)
+    if na(instance.endIndex) and not na(instance.toLine)
+        instance.toLine.set_x2(bar_index)
+        if not na(instance.toLabel)
+            instance.toLabel.set_x(bar_index)
+
+// @function Removes true open line and label
+// @param instance (PeriodInstance) Period instance
+dropToLine(PeriodInstance instance) =>
+    if not na(instance.toLine)
+        instance.toLine.delete()
+        instance.toLine := na
+    if not na(instance.toLabel)
+        instance.toLabel.delete()
+        instance.toLabel := na
+
+// @function Removes oldest instance from array
+// @param instances (array<PeriodInstance>) Array of instances
+// @param maxInstances (simple int) Maximum number of instances historical keep
+dropExcessiveInstances(array<PeriodInstance> instances, int maxInstances = na) =>
+    if array.size(instances) > 0
+        lastInstance = array.get(instances, array.size(instances) - 1)
+        targetLength = 0
+        if not na(maxInstances)
+            targetLength := na(lastInstance.endIndex) ? maxInstances + 1 : maxInstances
+        while array.size(instances) > targetLength
+            droppedInstance = array.shift(instances)
+            droppedInstance.highLine.delete()
+            droppedInstance.highLabel.delete()
+            droppedInstance.lowLine.delete()
+            droppedInstance.lowLabel.delete()
+            dropToLine(droppedInstance)
+            droppedInstance.background.delete()
+
+// @function Determines the time label for a period
+// @param period (Period) Period configuration
+// @returns Time label (e.g., "2 Jun" for a session or day, "CW 1" for a week, "Mar" for a month)
+getTimeLabel(Period period) =>
+    string timeLabel = ""
+    // For intraday and daily periods, return the month and day in the format "2 Jun"
+    if period.intraday or period.period == "D"
+        dayOfWeek = dayofweek(time)
+        timeLabel := str.format_time(dayOfWeek <= 1 ? time - 2 * 86400000 : time, "d MMM", TIMEZONE_NY)
+    // For weekly periods, return the week number in the format "CW 1" (for the first week of the year)
+    else if period.period == "W"
+        timeLabel := "CW " + str.format_time(time, "w", TIMEZONE_NY)
+    // For monthly periods, return the month in the format "Mar" for March)
+    else if period.period == "M"
+        timeLabel := str.format_time(time, "MMM", TIMEZONE_NY)
+    timeLabel
+
+// ————— Calculations
+// Initial setup
+var periods = setUpPeriods()
+var cycles = showCyclesInput ? setUpCycles(periods) : na
+var currentTf = timeframe.in_seconds(timeframe.period)
+
+// Main execution loop
+for key in map.keys(periods)
+    period = periods.get(key)
+    isLowerTf = timeframe.in_seconds(period.period) > currentTf
+    numOfInstances = array.size(period.instances)
+    PeriodInstance openInstance = na
+    inPeriod = false
+
+    if isLowerTf
+        // Non-intraday periods
+        if not period.intraday
+            openInstance := numOfInstances > 0 ? array.get(period.instances, numOfInstances - 1) : na
+            inPeriod := ta.change(time(period.period, TIMEZONE_NY), 1) > 0
+            if inPeriod or na(openInstance)
+
+                if not na(openInstance)
+                    openInstance.endIndex := bar_index[1]
+                    if period.timeOn == TimeOn.close
+                        openInstance.timeLabel := getTimeLabel(period)
+                    addHighLowLines(openInstance, period.label, period.suffixSeparator, period.color, period.style, period.width)
+                    // If present, update the label of the previous historical instance
+                    if showLabelsInput and numOfInstances > 2
+                        previousInstance = array.get(period.instances, numOfInstances - 2)
+                        previousInstance.highLabel.set_text(getLabel(previousInstance.timeLabel, " ", "high"))
+                        previousInstance.lowLabel.set_text(getLabel(previousInstance.timeLabel, " ", "low"))
+                    // Drop true open line and label
+                    if period.showToLevel
+                        dropToLine(openInstance)
+
+                // Drop excessive historical instances
+                dropExcessiveInstances(period.instances, historicalHtfInstancesInput)
+                // Open new instance
+                openInstance := newInstance(period, high, low)
+                if period.timeOn == TimeOn.open
+                    openInstance.timeLabel := getTimeLabel(period)
+                array.push(period.instances, openInstance)
+                numOfInstances := array.size(period.instances)
+
+            // Track high and low of open instance
+            if high > openInstance.high
+                openInstance.high := high
+                openInstance.highIndex := bar_index
+            if low < openInstance.low
+                openInstance.low := low
+                openInstance.lowIndex := bar_index
+
+            // Handle true open if enabled
+            if period.showToLevel
+                // Check if we reached true open
+                if na(openInstance.toLevel)
+                    openInstance.toLevel := getToLevel(period.period, period.quarterTf, na, TIMEZONE_NY)
+                    if not na(openInstance.toLevel)
+                        openInstance.toIndex := bar_index
+                        addToLine(openInstance, period.period, period.color, toStyleInput, toWidthInput)
+                // Update true open line if exists
+                else
+                    if not na(openInstance.toLine)
+                        updateLine(openInstance, "to")
+
+        // Intraday periods
+        if period.intraday and timeframe.isintraday
+            Period cyclePeriod = showCyclesInput ? cycles.get(period.label) : na
+            openInstance := numOfInstances > 0 ? array.get(period.instances, numOfInstances - 1) : na
+            // Check if open instance has closed on previous execution cycle
+            if not na(openInstance) and not na(openInstance.endIndex)
+                openInstance := na
+
+            inPeriod := not na(time(period.period, period.session, TIMEZONE_NY))
+            if inPeriod
+                if na(openInstance)
+                    // Open new instance
+                    openInstance := newInstance(period, high, low)
+                    if period.timeOn == TimeOn.open
+                        openInstance.timeLabel := getTimeLabel(period)
+                    addBackground(openInstance, period.color)
+                    array.push(period.instances, openInstance)
+                    numOfInstances := array.size(period.instances)
+                    // Update historical instances
+                    if numOfInstances >= 2
+                        previousInstance = array.get(period.instances, numOfInstances - 2)
+                        // Drop true open line and label
+                        if period.showToLevel
+                            dropToLine(previousInstance)
+                        // Update labels of previous historical instances
+                        if showLabelsInput
+                            previousInstance.highLabel.set_text(previousInstance.timeLabel + " " + previousInstance.highLabel.get_text())
+                            previousInstance.lowLabel.set_text(previousInstance.timeLabel + " " + previousInstance.lowLabel.get_text())
+
+                // Track high and low of open instance
+                // Update high
+                previousInstanceHigh = openInstance.high
+                if high > openInstance.high
+                    openInstance.high := high
+                    openInstance.highIndex := bar_index
+
+                // Update low
+                previousInstanceLow = openInstance.low
+                if low < openInstance.low
+                    openInstance.low := low
+                    openInstance.lowIndex := bar_index
+
+                // Update background
+                if not na(openInstance.background)
+                    updateBackground(openInstance)
+
+                // Handle true open if enabled
+                if period.showToLevel
+                    // Check if we reached true open
+                    if na(openInstance.toLevel)
+                        openInstance.toLevel := getToLevel(period.period, period.quarterTf, period.session, TIMEZONE_NY)
+                        if not na(openInstance.toLevel)
+                            openInstance.toIndex := bar_index
+                            addToLine(openInstance, period.label, period.color, toStyleInput, toWidthInput)
+                    // Update true open line if exists
+                    else
+                        if not na(openInstance.toLine)
+                            updateLine(openInstance, "to")
+
+                // Handle cycles
+                if showCyclesInput
+                    // Get cycle data
+                    numOfCycles = array.size(cyclePeriod.instances)
+                    currentCycle = numOfCycles > 0 ? array.get(cyclePeriod.instances, numOfCycles - 1) : na
+
+                    // Check for new cycle
+                    bool newCycle = false
+                    if period.label == "AS"
+                        // Asia specific: 5 cycles, starts after 1hr gap
+                        newCycle := ta.change(time(cyclePeriod.period, "1900-0230", TIMEZONE_NY), 1) > 0
+                        if newCycle or na(currentCycle)
+                            if not na(currentCycle)
+                                currentCycle.endIndex := bar_index[1]
+                            if numOfCycles < 5
+                                currentCycle := newInstance(cyclePeriod, high, low)
+                                addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
+                                array.push(cyclePeriod.instances, currentCycle)
+                                numOfCycles := array.size(cyclePeriod.instances)
+                    else
+                        // Standard sessions: 3 cycles, no gap
+                        newCycle := ta.change(time(cyclePeriod.period, TIMEZONE_NY), 1) > 0
+                        if newCycle or na(currentCycle)
+                            if not na(currentCycle)
+                                currentCycle.endIndex := bar_index[1]
+                            if numOfCycles < 3
+                                currentCycle := newInstance(cyclePeriod, high, low)
+                                addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
+                                array.push(cyclePeriod.instances, currentCycle)
+                                numOfCycles := array.size(cyclePeriod.instances)
+
+                    // Update current cycle high line if a cycle is active
+                    if not na(currentCycle)
+                        currentCycleHigh = currentCycle.high
+                        if high > currentCycle.high
+                            currentCycle.high := high
+                            currentCycle.highIndex := bar_index
+
+                        updateLine(
+                          currentCycle,
+                          "high",
+                          currentCycleHigh != high and anchorInput == "bar" ? currentCycle.highIndex : na,
+                          currentCycleHigh < high ? high : na
+                          )
+
+                        // Update current cycle low line
+                        currentCycleLow = currentCycle.low
+                        if low < currentCycle.low
+                            currentCycle.low := low
+                            currentCycle.lowIndex := bar_index
+
+                        updateLine(
+                          currentCycle,
+                          "low",
+                          currentCycleLow != low and anchorInput == "bar" ? currentCycle.lowIndex : na,
+                          currentCycleLow > low ? low : na
+                          )
+
+                    // Update previous cycles
+                    if numOfCycles >= 2
+                        for i = 0 to numOfCycles - 2
+                            cycle = array.get(cyclePeriod.instances, i)
+                            if na(cycle.highMitigationIndex)
+                                updateLine(cycle, "high")
+                                if high > cycle.high
+                                    cycle.highMitigationIndex := bar_index
+                                    if cyclesAlertInput and barstate.isrealtime
+                                        triggerAlert(getLabel(cyclePeriod.label + str.tostring(i+1), cyclePeriod.suffixSeparator, "high"), "high")
+                            if na(cycle.lowMitigationIndex)
+                                updateLine(cycle, "low")
+                                if low < cycle.low
+                                    cycle.lowMitigationIndex := bar_index
+                                    if cyclesAlertInput and barstate.isrealtime
+                                        triggerAlert(getLabel(cyclePeriod.label + str.tostring(i+1), cyclePeriod.suffixSeparator, "low"), "low")
+            else
+                if not na(openInstance) and na(openInstance.endIndex)
+
+                    // Close open period
+                    openInstance.endIndex := bar_index[1]
+                    if period.timeOn == TimeOn.close
+                        openInstance.timeLabel := getTimeLabel(period)
+
+                    // Add high and low lines
+                    addHighLowLines(openInstance, period.label, period.suffixSeparator, period.color, period.style, period.width)
+
+                    // Drop excessive historical instances
+                    dropExcessiveInstances(period.instances, historicalLtfInstancesInput)
+                    numOfInstances := array.size(period.instances)
+
+                    // Drop all cycles of closed session instance
+                    if showCyclesInput
+                        dropExcessiveInstances(cyclePeriod.instances)
+                    openInstance := na
+
+        // Check for close through/gap through true open
+        if toAlertInput and period.showToLevel and not na(openInstance) and not na(openInstance.toLevel)
+            if barstate.isrealtime and ta.change(time(timeframe.period, TIMEZONE_NY), 1) > 0
+                if
+                  (open[1] > openInstance.toLevel and close[1] < openInstance.toLevel and close[2] > openInstance.toLevel) or
+                  (math.min(open[2], close[2]) > openInstance.toLevel and math.max(open[1], close[1]) < openInstance.toLevel and close[2] < openInstance.toLevel)
+                    triggerToAlert(
+                      period.intraday ? period.label : period.period,
+                      "below"
+                      )
+                if
+                  (open[1] < openInstance.toLevel and close[1] > openInstance.toLevel and close[2] < openInstance.toLevel) or
+                  (math.max(open[2], close[2]) < openInstance.toLevel and math.min(open[1], close[1]) > openInstance.toLevel)
+                    triggerToAlert(
+                      period.intraday ? period.label : period.period,
+                      "above"
+                      )
+
+        // Update lines of closed instance
+        if numOfInstances > 0
+            for i = 0 to numOfInstances - 1
+                instance = array.get(period.instances, i)
+                if not na(instance.endIndex)
+                    // Update high line
+                    if na(instance.highMitigationIndex)
+                        updateLine(instance, "high")
+                        // Crossed line?
+                        if instance.high < high
+                            instance.highMitigationIndex := bar_index
+                            if period.alert and barstate.isrealtime
+                                triggerAlert(getLabel(period.label, period.suffixSeparator, "high"), "high")
+                    // Update low line
+                    if na(instance.lowMitigationIndex)
+                        updateLine(instance, "low")
+                        // Crossed line?
+                        if instance.low > low
+                            instance.lowMitigationIndex := bar_index
+                            if period.alert and barstate.isrealtime
+                                triggerAlert(getLabel(period.label, period.suffixSeparator, "low"), "low")
