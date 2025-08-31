@@ -802,8 +802,9 @@ for key in map.keys(periods)
                             if instance.high < high
                                 instance.highMitigationIndex := bar_index
                                 instance.highLine.set_x2(instance.endIndex)
-                                instance.highLabel.set_x(instance.startIndex + 1)
+                                instance.highLabel.set_x(instance.startIndex)
                                 instance.highLabel.set_textalign(text.align_left)
+                                instance.highLabel.set_style(label.style_label_lower_left)
                                 if period.alert and barstate.isrealtime
                                     triggerAlert(getLabel(period.label, period.suffixSeparator, "high"), "high")
                             else
@@ -813,8 +814,9 @@ for key in map.keys(periods)
                             if instance.low > low
                                 instance.lowMitigationIndex := bar_index
                                 instance.lowLine.set_x2(instance.endIndex)
-                                instance.lowLabel.set_x(instance.startIndex + 1)
+                                instance.lowLabel.set_x(instance.startIndex)
                                 instance.lowLabel.set_textalign(text.align_left)
+                                instance.lowLabel.set_style(label.style_label_upper_left)
                                 if period.alert and barstate.isrealtime
                                     triggerAlert(getLabel(period.label, period.suffixSeparator, "low"), "low")
                             else
