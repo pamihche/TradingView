@@ -16,26 +16,6 @@ const color COLOR_TRANSPARENT = color.new(#FFFFFF, 100)
 const color COLOR_BACKGROUND = color.new(color.gray, 95)
 
 // ————— Inputs
-// Previous Month High/Low
-bool showMonthInput = input.bool(true, "Show PMH/PML", group="Previous Month High/Low")
-color monthColorInput = input.color(color.gray, "Color", group="Previous Month High/Low")
-string monthStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Month High/Low")
-int monthWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Month High/Low")
-bool showMonthToLevelInput = input.bool(true, "Show true open", group="Previous Month High/Low")
-
-// Previous Week High/Low
-bool showWeekInput = input.bool(true, "Show PWH/PWL", group="Previous Week High/Low")
-color weekColorInput = input.color(color.gray, "Color", group="Previous Week High/Low")
-string weekStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Week High/Low")
-int weekWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Week High/Low")
-bool showWeekToLevelInput = input.bool(true, "Show true open", group="Previous Week High/Low")
-
-// Previous Day High/Low
-bool showDayInput = input.bool(true, "Show PDH/PDL", group="Previous Day High/Low")
-color dayColorInput = input.color(color.gray, "Color", group="Previous Day High/Low")
-string dayStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Day High/Low")
-int dayWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Day High/Low")
-bool showDayToLevelInput = input.bool(true, "Show true open", group="Previous Day High/Low")
 
 // Asia Session High/Low
 bool showAsiaInput = input.bool(true, "Show session high/low", group="Asia Session High/Low")
@@ -79,7 +59,6 @@ string toStyleInput = input.string("dashed", "Line Style", options=["solid", "da
 int toWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="True Open Settings")
 
 // Further Settings
-int historicalHtfInstancesInput = input.int(1, "Historical HTF periods", minval=1, maxval=10, group="Further Settings")
 int historicalLtfInstancesInput = input.int(1, "Historical intraday periods", minval=1, maxval=10, group="Further Settings")
 bool showLabelsInput = input.bool(true, "Show labels", group="Further Settings")
 string anchorInput = input.string("period", "Line anchor", options=["period", "bar"], group="Further Settings")
@@ -153,51 +132,6 @@ toStyle(string styleStr) =>
 // @returns Map containing all configured periods
 setUpPeriods() =>
     periods = map.new<string, Period>()
-    
-    // Previous month
-    if showMonthInput
-        pm = Period.new()
-        pm.period := "M"
-        pm.quarterTf := "W"
-        pm.intraday := false
-        pm.label := "PM"
-        pm.color := monthColorInput
-        pm.style := toStyle(monthStyleInput)
-        pm.width := monthWidthInput
-        pm.timeOn := TimeOn.open
-        pm.showToLevel := showMonthToLevelInput
-        pm.instances := array.new<PeriodInstance>()
-        periods.put("PreviousMonth", pm)
-    
-    // Previous week
-    if showWeekInput
-        pw = Period.new()
-        pw.period := "W"
-        pw.quarterTf := "D"
-        pw.intraday := false
-        pw.label := "PW"
-        pw.color := weekColorInput
-        pw.style := toStyle(weekStyleInput)
-        pw.width := weekWidthInput
-        pw.timeOn := TimeOn.open
-        pw.showToLevel := showWeekToLevelInput
-        pw.instances := array.new<PeriodInstance>()
-        periods.put("PreviousWeek", pw)
-    
-    // Previous day
-    if showDayInput
-        pd = Period.new()
-        pd.period := "D"
-        pd.quarterTf := "360"
-        pd.intraday := false
-        pd.label := "PD"
-        pd.color := dayColorInput
-        pd.style := toStyle(dayStyleInput)
-        pd.width := dayWidthInput
-        pd.timeOn := TimeOn.close
-        pd.showToLevel := showDayToLevelInput
-        pd.instances := array.new<PeriodInstance>()
-        periods.put("PreviousDay", pd)
     
     // Asia
     if showAsiaInput
@@ -559,20 +493,10 @@ dropExcessiveInstances(array<PeriodInstance> instances, int maxInstances = na) =
 
 // @function Determines the time label for a period
 // @param period (Period) Period configuration
-// @returns Time label (e.g., "2 Jun" for a session or day, "CW 1" for a week, "Mar" for a month)
+// @returns Time label (e.g., "2 Jun" for a session)
 getTimeLabel(Period period) =>
-    string timeLabel = ""
-    // For intraday and daily periods, return the month and day in the format "2 Jun"
-    if period.intraday or period.period == "D"
-        dayOfWeek = dayofweek(time)
-        timeLabel := str.format_time(dayOfWeek <= 1 ? time - 2 * 86400000 : time, "d MMM", TIMEZONE_NY)
-    // For weekly periods, return the week number in the format "CW 1" (for the first week of the year)
-    else if period.period == "W"
-        timeLabel := "CW " + str.format_time(time, "w", TIMEZONE_NY)
-    // For monthly periods, return the month in the format "Mar" for March)
-    else if period.period == "M"
-        timeLabel := str.format_time(time, "MMM", TIMEZONE_NY)
-    timeLabel
+    dayOfWeek = dayofweek(time)
+    str.format_time(dayOfWeek <= 1 ? time - 2 * 86400000 : time, "d MMM", TIMEZONE_NY)
 
 // ————— Calculations
 // Initial setup
@@ -589,56 +513,6 @@ for key in map.keys(periods)
     inPeriod = false
     
     if isLowerTf
-        // Non-intraday periods
-        if not period.intraday
-            openInstance := numOfInstances > 0 ? array.get(period.instances, numOfInstances - 1) : na
-            inPeriod := ta.change(time(period.period, TIMEZONE_NY), 1) > 0
-            if inPeriod or na(openInstance)
-                
-                if not na(openInstance)
-                    openInstance.endIndex := bar_index[1]
-                    if period.timeOn == TimeOn.close
-                        openInstance.timeLabel := getTimeLabel(period)
-                    addHighLowLines(openInstance, period.label, period.suffixSeparator, period.color, period.style, period.width)
-                    // If present, update the label of the previous historical instance
-                    if showLabelsInput and numOfInstances > 2
-                        previousInstance = array.get(period.instances, numOfInstances - 2)
-                        previousInstance.highLabel.set_text(getLabel(previousInstance.timeLabel, " ", "high"))
-                        previousInstance.lowLabel.set_text(getLabel(previousInstance.timeLabel, " ", "low"))
-                    // Drop true open line and label
-                    if period.showToLevel
-                        dropToLine(openInstance)
-                
-                // Drop excessive historical instances
-                dropExcessiveInstances(period.instances, historicalHtfInstancesInput)
-                // Open new instance
-                openInstance := newInstance(period, high, low)
-                if period.timeOn == TimeOn.open
-                    openInstance.timeLabel := getTimeLabel(period)
-                array.push(period.instances, openInstance)
-                numOfInstances := array.size(period.instances)
-                
-            // Track high and low of open instance
-            if high > openInstance.high
-                openInstance.high := high
-                openInstance.highIndex := bar_index
-            if low < openInstance.low
-                openInstance.low := low
-                openInstance.lowIndex := bar_index
-
-            // Handle true open if enabled
-            if period.showToLevel
-                // Check if we reached true open
-                if na(openInstance.toLevel)
-                    openInstance.toLevel := getToLevel(period.period, period.quarterTf, na, TIMEZONE_NY)
-                    if not na(openInstance.toLevel)
-                        openInstance.toIndex := bar_index
-                        addToLine(openInstance, period.period, period.color, toStyleInput, toWidthInput)
-                // Update true open line if exists
-                else 
-                    if not na(openInstance.toLine)
-                        updateLine(openInstance, "to")
-        
         // Intraday periods
         if period.intraday and timeframe.isintraday
             Period cyclePeriod = showCyclesInput ? cycles.get(period.label) : na
@@ -855,37 +729,24 @@ for key in map.keys(periods)
             for i = 0 to numOfInstances - 1
                 instance = array.get(period.instances, i)
                 if not na(instance.endIndex)
-                    if period.intraday
-                        // --- INTRADAY SESSIONS: Retract line and move label on mitigation ---
-                        // Update high line
-                        if na(instance.highMitigationIndex)
-                            if instance.high < high
-                                instance.highMitigationIndex := bar_index
-                                instance.highLine.set_x2(instance.endIndex)
-                                instance.highLabel.set_x(instance.startIndex)
-                                instance.highLabel.set_textalign(text.align_left)
-                                instance.highLabel.set_style(label.style_label_lower_left)
-                            else
-                                updateLine(instance, "high")
-                        // Update low line
-                        if na(instance.lowMitigationIndex)
-                            if instance.low > low
-                                instance.lowMitigationIndex := bar_index
-                                instance.lowLine.set_x2(instance.endIndex)
-                                instance.lowLabel.set_x(instance.startIndex)
-                                instance.lowLabel.set_textalign(text.align_left)
-                                instance.lowLabel.set_style(label.style_label_upper_left)
-                            else
-                                updateLine(instance, "low")
-                    else
-                        // --- HTF SESSIONS: Stop extending line on mitigation ---
-                        // Update high line
-                        if na(instance.highMitigationIndex)
+                    // --- INTRADAY SESSIONS: Retract line and move label on mitigation ---
+                    // Update high line
+                    if na(instance.highMitigationIndex)
+                        if instance.high < high
+                            instance.highMitigationIndex := bar_index
+                            instance.highLine.set_x2(instance.endIndex)
+                            instance.highLabel.set_x(instance.startIndex)
+                            instance.highLabel.set_textalign(text.align_left)
+                            instance.highLabel.set_style(label.style_label_lower_left)
+                        else
                             updateLine(instance, "high")
-                            if instance.high < high
-                                instance.highMitigationIndex := bar_index
-                        // Update low line
-                        if na(instance.lowMitigationIndex)
+                    // Update low line
+                    if na(instance.lowMitigationIndex)
+                        if instance.low > low
+                            instance.lowMitigationIndex := bar_index
+                            instance.lowLine.set_x2(instance.endIndex)
+                            instance.lowLabel.set_x(instance.startIndex)
+                            instance.lowLabel.set_textalign(text.align_left)
+                            instance.lowLabel.set_style(label.style_label_upper_left)
+                        else
                             updateLine(instance, "low")
-                            if instance.low > low
-                                instance.lowMitigationIndex := bar_index
