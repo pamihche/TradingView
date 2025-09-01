@@ -18,7 +18,6 @@ const color COLOR_BACKGROUND = color.new(color.gray, 95)
 // ————— Inputs
 // Previous Month High/Low
 bool showMonthInput = input.bool(true, "Show PMH/PML", group="Previous Month High/Low")
-bool monthAlertInput = input.bool(false, "Alert when crossed", group="Previous Month High/Low")
 color monthColorInput = input.color(color.gray, "Color", group="Previous Month High/Low")
 string monthStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Month High/Low")
 int monthWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Month High/Low")
@@ -26,7 +25,6 @@ bool showMonthToLevelInput = input.bool(true, "Show true open", group="Previous 
 
 // Previous Week High/Low
 bool showWeekInput = input.bool(true, "Show PWH/PWL", group="Previous Week High/Low")
-bool weekAlertInput = input.bool(false, "Alert when crossed", group="Previous Week High/Low")
 color weekColorInput = input.color(color.gray, "Color", group="Previous Week High/Low")
 string weekStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Week High/Low")
 int weekWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Week High/Low")
@@ -34,7 +32,6 @@ bool showWeekToLevelInput = input.bool(true, "Show true open", group="Previous W
 
 // Previous Day High/Low
 bool showDayInput = input.bool(true, "Show PDH/PDL", group="Previous Day High/Low")
-bool dayAlertInput = input.bool(false, "Alert when crossed", group="Previous Day High/Low")
 color dayColorInput = input.color(color.gray, "Color", group="Previous Day High/Low")
 string dayStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Previous Day High/Low")
 int dayWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Previous Day High/Low")
@@ -42,7 +39,6 @@ bool showDayToLevelInput = input.bool(true, "Show true open", group="Previous Da
 
 // Asia Session High/Low
 bool showAsiaInput = input.bool(true, "Show session high/low", group="Asia Session High/Low")
-bool asiaAlertInput = input.bool(false, "Alert when crossed", group="Asia Session High/Low")
 color asiaColorInput = input.color(color.blue, "Color", group="Asia Session High/Low")
 string asiaStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Asia Session High/Low")
 int asiaWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Asia Session High/Low")
@@ -51,7 +47,6 @@ bool showAsiaBackgroundInput = input.bool(false, "Show background", group="Asia 
 
 // London Session High/Low
 bool showLondonInput = input.bool(true, "Show session high/low", group="London Session High/Low")
-bool londonAlertInput = input.bool(false, "Alert when crossed", group="London Session High/Low")
 color londonColorInput = input.color(color.purple, "Color", group="London Session High/Low")
 string londonStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="London Session High/Low")
 int londonWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="London Session High/Low")
@@ -60,7 +55,6 @@ bool showLondonBackgroundInput = input.bool(false, "Show background", group="Lon
 
 // NY Morning Session High/Low
 bool showNYAMInput = input.bool(true, "Show session high/low", group="NY Morning Session High/Low")
-bool nyamAlertInput = input.bool(false, "Alert when crossed", group="NY Morning Session High/Low")
 color nyamColorInput = input.color(color.orange, "Color", group="NY Morning Session High/Low")
 string nyamStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="NY Morning Session High/Low")
 int nyamWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="NY Morning Session High/Low")
@@ -69,7 +63,6 @@ bool showNYAMBackgroundInput = input.bool(false, "Show background", group="NY Mo
 
 // NY Afternoon Session High/Low
 bool showNYPMInput = input.bool(true, "Show session high/low", group="NY Afternoon Session High/Low")
-bool nypmAlertInput = input.bool(false, "Alert when crossed", group="NY Afternoon Session High/Low")
 color nypmColorInput = input.color(color.fuchsia, "Color", group="NY Afternoon Session High/Low")
 string nypmStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="NY Afternoon Session High/Low")
 int nypmWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="NY Afternoon Session High/Low")
@@ -78,12 +71,10 @@ bool showNYPMBackgroundInput = input.bool(false, "Show background", group="NY Af
 
 // Current Session Cycles
 bool showCyclesInput = input.bool(true, "Show current session cycles", group="Current Session Cycles")
-bool cyclesAlertInput = input.bool(false, "Alert when crossed", group="Current Session Cycles")
 string cyclesStyleInput = input.string("dotted", "Line Style", options=["solid", "dashed", "dotted"], group="Current Session Cycles")
 int cyclesWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Current Session Cycles")
 
 // True Open Settings
-bool toAlertInput = input.bool(false, "Alert when closed through", group="True Open Settings")
 string toStyleInput = input.string("dashed", "Line Style", options=["solid", "dashed", "dotted"], group="True Open Settings")
 int toWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="True Open Settings")
 
@@ -132,7 +123,6 @@ type Period
     color color = na
     string style = na
     int width = 1
-    bool alert = false
     TimeOn timeOn = na
     bool showBackground = false
     bool showToLevel = false
@@ -174,7 +164,6 @@ setUpPeriods() =>
         pm.color := monthColorInput
         pm.style := toStyle(monthStyleInput)
         pm.width := monthWidthInput
-        pm.alert := monthAlertInput
         pm.timeOn := TimeOn.open
         pm.showToLevel := showMonthToLevelInput
         pm.instances := array.new<PeriodInstance>()
@@ -190,7 +179,6 @@ setUpPeriods() =>
         pw.color := weekColorInput
         pw.style := toStyle(weekStyleInput)
         pw.width := weekWidthInput
-        pw.alert := weekAlertInput
         pw.timeOn := TimeOn.open
         pw.showToLevel := showWeekToLevelInput
         pw.instances := array.new<PeriodInstance>()
@@ -206,7 +194,6 @@ setUpPeriods() =>
         pd.color := dayColorInput
         pd.style := toStyle(dayStyleInput)
         pd.width := dayWidthInput
-        pd.alert := dayAlertInput
         pd.timeOn := TimeOn.close
         pd.showToLevel := showDayToLevelInput
         pd.instances := array.new<PeriodInstance>()
@@ -223,7 +210,6 @@ setUpPeriods() =>
         asia.color := asiaColorInput
         asia.style := toStyle(asiaStyleInput)
         asia.width := asiaWidthInput
-        asia.alert := asiaAlertInput
         asia.timeOn := TimeOn.open
         asia.showBackground := showAsiaBackgroundInput
         asia.showToLevel := showAsiaToLevelInput
@@ -241,7 +227,6 @@ setUpPeriods() =>
         london.color := londonColorInput
         london.style := toStyle(londonStyleInput)
         london.width := londonWidthInput
-        london.alert := londonAlertInput
         london.timeOn := TimeOn.open
         london.showBackground := showLondonBackgroundInput
         london.showToLevel := showLondonToLevelInput
@@ -259,7 +244,6 @@ setUpPeriods() =>
         nyam.color := nyamColorInput
         nyam.style := toStyle(nyamStyleInput)
         nyam.width := nyamWidthInput
-        nyam.alert := nyamAlertInput
         nyam.timeOn := TimeOn.open
         nyam.showBackground := showNYAMBackgroundInput
         nyam.showToLevel := showNYAMToLevelInput
@@ -277,7 +261,6 @@ setUpPeriods() =>
         nypm.color := nypmColorInput
         nypm.style := toStyle(nypmStyleInput)
         nypm.width := nypmWidthInput
-        nypm.alert := nypmAlertInput
         nypm.timeOn := TimeOn.open
         nypm.showBackground := showNYPMBackgroundInput
         nypm.showToLevel := showNYPMToLevelInput
@@ -301,25 +284,11 @@ setUpCycles(map<string, Period> periods) =>
         cycle.color := period.color
         cycle.style := toStyle(cyclesStyleInput)
         cycle.width := cyclesWidthInput
-        cycle.alert := cyclesAlertInput
         cycle.instances := array.new<PeriodInstance>()
         cycles.put(period.label, cycle)
 
     cycles
 
-// @function Triggers alert when price hits a level
-// @param label (simple string) Level label
-// @param level (simple string) Level type ("high" or "low")
-triggerAlert(string label, string level) =>
-    message = syminfo.ticker + ": Price hit " + label + " at " + str.tostring(close)
-    alert(message, alert.freq_once_per_bar)
-
-// @function Triggers alert when price closes through true open
-// @param label (simple string) Period label
-// @param direction (simple string) Direction ("above" or "below")
-triggerToAlert(string label, string direction) =>
-    message = syminfo.ticker + ": Price closed " + direction + " " + label + " True Open at " + str.tostring(close[1])
-    alert(message, alert.freq_once_per_bar)
 
 // @function Generates the base label for a cycle
 // @param sessionPeriod (Period) The Period object for the main session
@@ -847,8 +816,6 @@ for key in map.keys(periods)
                                     cycle.highLabel.set_x(cycle.startIndex)
                                     cycle.highLabel.set_textalign(text.align_left)
                                     cycle.highLabel.set_style(label.style_label_lower_left)
-                                    if cyclesAlertInput and barstate.isrealtime
-                                        triggerAlert(getLabel(cyclePeriod.label + str.tostring(i + 1), cyclePeriod.suffixSeparator, "high"), "high")
                                 else
                                     updateLine(cycle, "high")
                             // Low line mitigation
@@ -859,8 +826,6 @@ for key in map.keys(periods)
                                     cycle.lowLabel.set_x(cycle.startIndex)
                                     cycle.lowLabel.set_textalign(text.align_left)
                                     cycle.lowLabel.set_style(label.style_label_upper_left)
-                                    if cyclesAlertInput and barstate.isrealtime
-                                        triggerAlert(getLabel(cyclePeriod.label + str.tostring(i + 1), cyclePeriod.suffixSeparator, "low"), "low")
                                 else
                                     updateLine(cycle, "low")
             else
@@ -884,23 +849,6 @@ for key in map.keys(periods)
                         dropExcessiveInstances(cyclePeriod.instances)
                     openInstance := na
                             
-        // Check for close through/gap through true open
-        if toAlertInput and period.showToLevel and not na(openInstance) and not na(openInstance.toLevel)
-            if barstate.isrealtime and ta.change(time(timeframe.period, TIMEZONE_NY), 1) > 0
-                if 
-                  (open[1] > openInstance.toLevel and close[1] < openInstance.toLevel and close[2] > openInstance.toLevel) or
-                  (math.min(open[2], close[2]) > openInstance.toLevel and math.max(open[1], close[1]) < openInstance.toLevel and close[2] < openInstance.toLevel)
-                    triggerToAlert(
-                      period.intraday ? period.label : period.period,
-                      "below"
-                      )
-                if 
-                  (open[1] < openInstance.toLevel and close[1] > openInstance.toLevel and close[2] < openInstance.toLevel) or
-                  (math.max(open[2], close[2]) < openInstance.toLevel and math.min(open[1], close[1]) > openInstance.toLevel)
-                    triggerToAlert(
-                      period.intraday ? period.label : period.period,
-                      "above"
-                      )
         
         // Update lines of closed instance
         if numOfInstances > 0
@@ -917,8 +865,6 @@ for key in map.keys(periods)
                                 instance.highLabel.set_x(instance.startIndex)
                                 instance.highLabel.set_textalign(text.align_left)
                                 instance.highLabel.set_style(label.style_label_lower_left)
-                                if period.alert and barstate.isrealtime
-                                    triggerAlert(getLabel(period.label, period.suffixSeparator, "high"), "high")
                             else
                                 updateLine(instance, "high")
                         // Update low line
@@ -929,8 +875,6 @@ for key in map.keys(periods)
                                 instance.lowLabel.set_x(instance.startIndex)
                                 instance.lowLabel.set_textalign(text.align_left)
                                 instance.lowLabel.set_style(label.style_label_upper_left)
-                                if period.alert and barstate.isrealtime
-                                    triggerAlert(getLabel(period.label, period.suffixSeparator, "low"), "low")
                             else
                                 updateLine(instance, "low")
                     else
@@ -940,12 +884,8 @@ for key in map.keys(periods)
                             updateLine(instance, "high")
                             if instance.high < high
                                 instance.highMitigationIndex := bar_index
-                                if period.alert and barstate.isrealtime
-                                    triggerAlert(getLabel(period.label, period.suffixSeparator, "high"), "high")
                         // Update low line
                         if na(instance.lowMitigationIndex)
                             updateLine(instance, "low")
                             if instance.low > low
                                 instance.lowMitigationIndex := bar_index
-                                if period.alert and barstate.isrealtime
-                                    triggerAlert(getLabel(period.label, period.suffixSeparator, "low"), "low")
