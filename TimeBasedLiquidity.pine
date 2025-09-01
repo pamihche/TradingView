@@ -317,6 +317,50 @@ triggerToAlert(string label, string direction) =>
     message = syminfo.ticker + ": Price closed " + direction + " " + label + " True Open at " + str.tostring(close[1])
     alert(message, alert.freq_once_per_bar)
 
+// @function Generates the base label for a cycle
+// @param sessionPeriod (Period) The Period object for the main session
+// @param cyclePeriod (Period) The Period object for the cycle
+// @param cycleNum (int) The number of the cycle
+// @returns The formatted base label string (e.g., "LON C1")
+generateCycleBaseLabel(Period sessionPeriod, Period cyclePeriod, int cycleNum) =>
+    string baseLabel = ""
+    switch sessionPeriod.label
+        "LON" =>
+            switch cycleNum
+                11 => baseLabel := "London Pre"
+                12 => baseLabel := "Something"
+                13 => baseLabel := "London Close"
+                => baseLabel := sessionPeriod.label + " " + cyclePeriod.label + str.tostring(cycleNum)
+
+        "NYAM" =>
+            switch cycleNum
+                11 => baseLabel := "Morning Pre"
+                12 => baseLabel := "Something"
+                13 => baseLabel := "Morning Close"
+                => baseLabel := sessionPeriod.label + " " + cyclePeriod.label + str.tostring(cycleNum)
+
+        "NYPM" =>
+            switch cycleNum
+                11 => baseLabel := "Afternoon Pre"
+                12 => baseLabel := "Something PM"
+                13 => baseLabel := "Afternoon Close"
+                => baseLabel := sessionPeriod.label + " " + cyclePeriod.label + str.tostring(cycleNum)
+
+        "AS" =>
+            switch cycleNum
+                11 => baseLabel := "Asia 1"
+                12 => baseLabel := "Asia 2"
+                13 => baseLabel := "Asia 3"
+                14 => baseLabel := "Asia 4"
+                15 => baseLabel := "Asia 5"
+                => baseLabel := sessionPeriod.label + " " + cyclePeriod.label + str.tostring(cycleNum)
+
+        // Default for any future sessions
+        =>
+            baseLabel := sessionPeriod.label + " " + cyclePeriod.label + str.tostring(cycleNum)
+
+    baseLabel
+
 // @function Creates label text for high/low levels
 // @param label (simple string) Base label
 // @param suffixSeparator (simple string) Separator between label and level
@@ -727,7 +771,7 @@ for key in map.keys(periods)
                             currentCycle := newInstance(cyclePeriod, high, low)
                             if isFirstCycle
                                 period.firstCycleStarted := true // Set the flag after creating the first cycle
-                            addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
+                            addHighLowLines(currentCycle, generateCycleBaseLabel(period, cyclePeriod, numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
 
                             // Make new drawings transparent until cycle is complete
                             if not na(currentCycle.highLine)
