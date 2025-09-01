@@ -8,6 +8,10 @@ const string SESSION_ASIA = "1800-0230"
 const string SESSION_LONDON = "0230-0700"
 const string SESSION_NY_AM = "0700-1130"
 const string SESSION_NY_PM = "1130-1600"
+const string SESSION_ASIA_KEY = "AS"
+const string SESSION_LONDON_KEY = "LON"
+const string SESSION_NY_AM_KEY = "NYAM"
+const string SESSION_NY_PM_KEY = "NYPM"
 const color COLOR_TRANSPARENT = color.new(#FFFFFF, 100)
 const color COLOR_BACKGROUND = color.new(color.gray, 95)
 
@@ -214,7 +218,7 @@ setUpPeriods() =>
         asia.period := "510"
         asia.quarterTf := "90"
         asia.session := SESSION_ASIA
-        asia.label := "AS"
+        asia.label := SESSION_ASIA_KEY
         asia.suffixSeparator := "."
         asia.color := asiaColorInput
         asia.style := toStyle(asiaStyleInput)
@@ -224,7 +228,7 @@ setUpPeriods() =>
         asia.showBackground := showAsiaBackgroundInput
         asia.showToLevel := showAsiaToLevelInput
         asia.instances := array.new<PeriodInstance>()
-        periods.put("AS", asia)
+        periods.put(SESSION_ASIA_KEY, asia)
     
     // London
     if showLondonInput
@@ -232,7 +236,7 @@ setUpPeriods() =>
         london.period := "270"
         london.quarterTf := "90"
         london.session := SESSION_LONDON
-        london.label := "LON"
+        london.label := SESSION_LONDON_KEY
         london.suffixSeparator := "."
         london.color := londonColorInput
         london.style := toStyle(londonStyleInput)
@@ -242,7 +246,7 @@ setUpPeriods() =>
         london.showBackground := showLondonBackgroundInput
         london.showToLevel := showLondonToLevelInput
         london.instances := array.new<PeriodInstance>()
-        periods.put("LON", london)
+        periods.put(SESSION_LONDON_KEY, london)
     
     // NY AM
     if showNYAMInput
@@ -250,7 +254,7 @@ setUpPeriods() =>
         nyam.period := "270"
         nyam.quarterTf := "90"
         nyam.session := SESSION_NY_AM
-        nyam.label := "NYAM"
+        nyam.label := SESSION_NY_AM_KEY
         nyam.suffixSeparator := "."
         nyam.color := nyamColorInput
         nyam.style := toStyle(nyamStyleInput)
@@ -260,7 +264,7 @@ setUpPeriods() =>
         nyam.showBackground := showNYAMBackgroundInput
         nyam.showToLevel := showNYAMToLevelInput
         nyam.instances := array.new<PeriodInstance>()
-        periods.put("NYAM", nyam)
+        periods.put(SESSION_NY_AM_KEY, nyam)
     
     // NY PM
     if showNYPMInput
@@ -268,7 +272,7 @@ setUpPeriods() =>
         nypm.period := "270"
         nypm.quarterTf := "90"
         nypm.session := SESSION_NY_PM
-        nypm.label := "NYPM"
+        nypm.label := SESSION_NY_PM_KEY
         nypm.suffixSeparator := "."
         nypm.color := nypmColorInput
         nypm.style := toStyle(nypmStyleInput)
@@ -278,7 +282,7 @@ setUpPeriods() =>
         nypm.showBackground := showNYPMBackgroundInput
         nypm.showToLevel := showNYPMToLevelInput
         nypm.instances := array.new<PeriodInstance>()
-        periods.put("NYPM", nypm)
+        periods.put(SESSION_NY_PM_KEY, nypm)
 
     periods
 
@@ -325,28 +329,28 @@ triggerToAlert(string label, string direction) =>
 generateCycleBaseLabel(Period sessionPeriod, Period cyclePeriod, int cycleNum) =>
     string baseLabel = ""
     switch sessionPeriod.label
-        "LON" =>
+        SESSION_LONDON_KEY =>
             switch cycleNum
                 11 => baseLabel := "London Pre"
                 12 => baseLabel := "Something"
                 13 => baseLabel := "London Close"
                 => baseLabel := sessionPeriod.label + " " + cyclePeriod.label + str.tostring(cycleNum)
 
-        "NYAM" =>
+        SESSION_NY_AM_KEY =>
             switch cycleNum
                 11 => baseLabel := "Morning Pre"
                 12 => baseLabel := "Something"
                 13 => baseLabel := "Morning Close"
                 => baseLabel := sessionPeriod.label + " " + cyclePeriod.label + str.tostring(cycleNum)
 
-        "NYPM" =>
+        SESSION_NY_PM_KEY =>
             switch cycleNum
                 11 => baseLabel := "Afternoon Pre"
                 12 => baseLabel := "Something PM"
                 13 => baseLabel := "Afternoon Close"
                 => baseLabel := sessionPeriod.label + " " + cyclePeriod.label + str.tostring(cycleNum)
 
-        "AS" =>
+        SESSION_ASIA_KEY =>
             switch cycleNum
                 11 => baseLabel := "Asia 1"
                 12 => baseLabel := "Asia 2"
@@ -734,7 +738,7 @@ for key in map.keys(periods)
                     
                     // Check for new cycle
                     bool cycleStartTrigger = inPeriod
-                    if period.label == "AS"
+                    if period.label == SESSION_ASIA_KEY
                         cycleStartTrigger := not na(time(timeframe.period, "1900-0230", TIMEZONE_NY))
                     
                     isFirstCycle = not period.firstCycleStarted and cycleStartTrigger
@@ -765,7 +769,7 @@ for key in map.keys(periods)
 
                         
                         // Determine cycle limit
-                        int cycleLimit = period.label == "AS" ? 5 : 3
+                        int cycleLimit = period.label == SESSION_ASIA_KEY ? 5 : 3
                         
                         if numOfCycles < cycleLimit
                             currentCycle := newInstance(cyclePeriod, high, low)
