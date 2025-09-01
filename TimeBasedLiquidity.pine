@@ -704,11 +704,13 @@ for key in map.keys(periods)
                         if not na(currentCycle)
                             currentCycle.endIndex := bar_index[1]
 
-                            // When cycle ends, delete the extended line
+                            // When cycle ends, move its end line back by 1 minute
                             if not na(currentCycle.cycleEndLine)
-                                // Delete the old extended line
-                                currentCycle.cycleEndLine.delete()
-                                currentCycle.cycleEndLine := na
+                                old_x = currentCycle.cycleEndLine.get_x1()
+                                new_x = old_x - (currentTf * 1000) // Subtract timeframe in ms
+                                currentCycle.cycleEndLine.set_x1(new_x)
+                                currentCycle.cycleEndLine.set_x2(new_x)
+
                         
                         // Determine cycle limit
                         int cycleLimit = period.label == "AS" ? 5 : 3
