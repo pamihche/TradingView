@@ -720,6 +720,18 @@ for key in map.keys(periods)
                             if isFirstCycle
                                 period.firstCycleStarted := true // Set the flag after creating the first cycle
                             addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
+
+                            // Add hardcoded background color
+                            cycleNum = numOfCycles + 1
+                            color bgColor = switch cycleNum
+                                1 => color.new(color.gray, 90)
+                                2 => color.new(color.white, 90)
+                                3 => color.new(color.gray, 90)
+                                4 => color.new(color.white, 90)
+                                5 => color.new(color.gray, 90)
+                                => na
+                            if not na(bgColor)
+                                addBackground(currentCycle, bgColor)
                             cycleEndTime = time + 90 * 60000
                             currentCycle.cycleEndLine := line.new(cycleEndTime, currentCycle.low, cycleEndTime, currentCycle.high, xloc=xloc.bar_time, extend=extend.both, color=cyclePeriod.color, style=line.style_dashed)
                             array.push(cyclePeriod.instances, currentCycle)
@@ -752,7 +764,9 @@ for key in map.keys(periods)
                           currentCycleLow > low ? low : na
                           )
 
-                        // Update the vertical cycle end line to match the new high/low
+                        // Update background and vertical cycle end line
+                        if not na(currentCycle.background)
+                            updateBackground(currentCycle)
                         if not na(currentCycle.cycleEndLine)
                             currentCycle.cycleEndLine.set_y1(currentCycle.low)
                             currentCycle.cycleEndLine.set_y2(currentCycle.high)
