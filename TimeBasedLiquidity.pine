@@ -704,16 +704,11 @@ for key in map.keys(periods)
                         if not na(currentCycle)
                             currentCycle.endIndex := bar_index[1]
 
-                            // When cycle ends, replace the extended line with a fixed-size one
+                            // When cycle ends, delete the extended line
                             if not na(currentCycle.cycleEndLine)
                                 // Delete the old extended line
                                 currentCycle.cycleEndLine.delete()
-
-                                // Calculate the end time for the line that just finished
-                                cycleEndTime = currentCycle.startTime + 90 * 60000
-                                
-                                // Create a new, non-extended line in its place
-                                currentCycle.cycleEndLine := line.new(cycleEndTime, currentCycle.low, cycleEndTime, currentCycle.high, xloc=xloc.bar_time, extend=extend.none, color=cyclePeriod.color, style=line.style_dashed)
+                                currentCycle.cycleEndLine := na
                         
                         // Determine cycle limit
                         int cycleLimit = period.label == "AS" ? 5 : 3
