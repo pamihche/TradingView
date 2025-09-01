@@ -22,7 +22,6 @@ bool showAsiaInput = input.bool(true, "Show session high/low", group="Asia Sessi
 color asiaColorInput = input.color(color.blue, "Color", group="Asia Session High/Low")
 string asiaStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="Asia Session High/Low")
 int asiaWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Asia Session High/Low")
-bool showAsiaToLevelInput = input.bool(true, "Show true open", group="Asia Session High/Low")
 bool showAsiaBackgroundInput = input.bool(false, "Show background", group="Asia Session High/Low")
 
 // London Session High/Low
@@ -30,7 +29,6 @@ bool showLondonInput = input.bool(true, "Show session high/low", group="London S
 color londonColorInput = input.color(color.purple, "Color", group="London Session High/Low")
 string londonStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="London Session High/Low")
 int londonWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="London Session High/Low")
-bool showLondonToLevelInput = input.bool(true, "Show true open", group="London Session High/Low")
 bool showLondonBackgroundInput = input.bool(false, "Show background", group="London Session High/Low")
 
 // NY Morning Session High/Low
@@ -38,7 +36,6 @@ bool showNYAMInput = input.bool(true, "Show session high/low", group="NY Morning
 color nyamColorInput = input.color(color.orange, "Color", group="NY Morning Session High/Low")
 string nyamStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="NY Morning Session High/Low")
 int nyamWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="NY Morning Session High/Low")
-bool showNYAMToLevelInput = input.bool(true, "Show true open", group="NY Morning Session High/Low")
 bool showNYAMBackgroundInput = input.bool(false, "Show background", group="NY Morning Session High/Low")
 
 // NY Afternoon Session High/Low
@@ -46,17 +43,12 @@ bool showNYPMInput = input.bool(true, "Show session high/low", group="NY Afterno
 color nypmColorInput = input.color(color.fuchsia, "Color", group="NY Afternoon Session High/Low")
 string nypmStyleInput = input.string("solid", "Line Style", options=["solid", "dashed", "dotted"], group="NY Afternoon Session High/Low")
 int nypmWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="NY Afternoon Session High/Low")
-bool showNYPMToLevelInput = input.bool(true, "Show true open", group="NY Afternoon Session High/Low")
 bool showNYPMBackgroundInput = input.bool(false, "Show background", group="NY Afternoon Session High/Low")
 
 // Current Session Cycles
 bool showCyclesInput = input.bool(true, "Show current session cycles", group="Current Session Cycles")
 string cyclesStyleInput = input.string("dotted", "Line Style", options=["solid", "dashed", "dotted"], group="Current Session Cycles")
 int cyclesWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="Current Session Cycles")
-
-// True Open Settings
-string toStyleInput = input.string("dashed", "Line Style", options=["solid", "dashed", "dotted"], group="True Open Settings")
-int toWidthInput = input.int(1, "Line Width", options=[1, 2, 3, 4, 5], group="True Open Settings")
 
 // Further Settings
 int historicalLtfInstancesInput = input.int(1, "Historical intraday periods", minval=1, maxval=10, group="Further Settings")
@@ -85,11 +77,6 @@ type PeriodInstance
     int lowMitigationIndex = na
     box background = na
     string timeLabel = na
-    // True open data
-    float toLevel = na
-    int toIndex = na
-    line toLine = na
-    label toLabel = na
     line cycleEndLine = na
 
 type Period
@@ -104,7 +91,6 @@ type Period
     int width = 1
     TimeOn timeOn = na
     bool showBackground = false
-    bool showToLevel = false
     array<PeriodInstance> instances = na
     bool firstCycleStarted = false
 
@@ -146,7 +132,6 @@ setUpPeriods() =>
         asia.width := asiaWidthInput
         asia.timeOn := TimeOn.open
         asia.showBackground := showAsiaBackgroundInput
-        asia.showToLevel := showAsiaToLevelInput
         asia.instances := array.new<PeriodInstance>()
         periods.put(SESSION_ASIA_KEY, asia)
     
@@ -163,7 +148,6 @@ setUpPeriods() =>
         london.width := londonWidthInput
         london.timeOn := TimeOn.open
         london.showBackground := showLondonBackgroundInput
-        london.showToLevel := showLondonToLevelInput
         london.instances := array.new<PeriodInstance>()
         periods.put(SESSION_LONDON_KEY, london)
     
@@ -180,7 +164,6 @@ setUpPeriods() =>
         nyam.width := nyamWidthInput
         nyam.timeOn := TimeOn.open
         nyam.showBackground := showNYAMBackgroundInput
-        nyam.showToLevel := showNYAMToLevelInput
         nyam.instances := array.new<PeriodInstance>()
         periods.put(SESSION_NY_AM_KEY, nyam)
     
@@ -197,7 +180,6 @@ setUpPeriods() =>
         nypm.width := nypmWidthInput
         nypm.timeOn := TimeOn.open
         nypm.showBackground := showNYPMBackgroundInput
-        nypm.showToLevel := showNYPMToLevelInput
         nypm.instances := array.new<PeriodInstance>()
         periods.put(SESSION_NY_PM_KEY, nypm)
 
@@ -374,52 +356,6 @@ addHighLowLines(PeriodInstance instance, string label, string suffixSeparator = 
 newInstance(Period period, float h, float l) =>
     PeriodInstance.new(startTime = time, startIndex = bar_index, high = h, low = l, highIndex = bar_index, lowIndex = bar_index)
 
-// @function Determines true open level for different periods
-// @param htf (simple string) Higher timeframe
-// @param ltf (simple string) Lower timeframe
-// @param session (simple string) Optional session string
-// @param timezone (simple string) Timezone
-// @returns True open level or na
-getToLevel(string htf, string ltf, string session = na, string timezone) =>
-    float trueOpen = na
-    
-    // Detect transitions
-    bool newHtfPeriod = na(session) ? 
-      ta.change(time(htf, timezone), 1) > 0 :
-      ta.change(time(htf, session, timezone), 1) > 0
-    
-    bool newLtfPeriod = ta.change(time(ltf, timezone), 1) > 0
-    
-    // Return on new LTF period when HTF is not new
-    if newLtfPeriod and not newHtfPeriod
-        trueOpen := open
-    
-    trueOpen
-
-// @function Creates true open line and label
-// @param instance (PeriodInstance) Period instance
-// @param label (simple string) Label text
-// @param lineColor (color) Line color
-// @param lineStyle (simple string) Line style
-// @param lineWidth (simple int) Line width
-addToLine(PeriodInstance instance, string label, color lineColor, string lineStyle, int lineWidth) =>
-    if not na(instance.toLevel) and not na(instance.toIndex)
-        endIndex = na(instance.endIndex) ? instance.toIndex + 1 : math.min(instance.toIndex + 1, instance.endIndex)
-        instance.toLine := line.new(
-          instance.toIndex, instance.toLevel,
-          endIndex, instance.toLevel,
-          xloc.bar_index, extend.none,
-          lineColor, toStyle(lineStyle), width=lineWidth
-          )
-        if showLabelsInput
-            instance.toLabel := label.new(
-              endIndex, instance.toLevel,
-              label + ".TO",
-              xloc.bar_index, yloc.price,
-              COLOR_TRANSPARENT, label.style_label_left,
-              lineColor, toSize(labelSizeInput), text.align_left
-              )
-
 // @function Updates line length and position
 // @param instance (PeriodInstance) Period instance
 // @param whichLine (simple string) Which line to update ("high", "low", "to")
@@ -438,10 +374,6 @@ updateLine(PeriodInstance instance, string whichLine, int startIndex = na, float
             lineObj := instance.lowLine
             labelObj := instance.lowLabel
             wasMitigated := not na(instance.lowMitigationIndex)
-        "to" =>
-            lineObj := instance.toLine
-            labelObj := instance.toLabel
-            wasMitigated := not na(instance.endIndex)
     if not na(lineObj) and not wasMitigated
         lineObj.set_x2(bar_index)
         if not na(startIndex)
@@ -455,20 +387,6 @@ updateLine(PeriodInstance instance, string whichLine, int startIndex = na, float
             labelObj.set_x(bar_index)
             if not na(y)
                 labelObj.set_y(y)
-    if na(instance.endIndex) and not na(instance.toLine)
-        instance.toLine.set_x2(bar_index)
-        if not na(instance.toLabel)
-            instance.toLabel.set_x(bar_index)   
-
-// @function Removes true open line and label
-// @param instance (PeriodInstance) Period instance
-dropToLine(PeriodInstance instance) =>
-    if not na(instance.toLine)
-        instance.toLine.delete()
-        instance.toLine := na
-    if not na(instance.toLabel)
-        instance.toLabel.delete()
-        instance.toLabel := na
 
 // @function Removes oldest instance from array
 // @param instances (array<PeriodInstance>) Array of instances
@@ -485,7 +403,6 @@ dropExcessiveInstances(array<PeriodInstance> instances, int maxInstances = na) =
             droppedInstance.highLabel.delete()
             droppedInstance.lowLine.delete()
             droppedInstance.lowLabel.delete()
-            dropToLine(droppedInstance)
             if not na(droppedInstance.background)
                 droppedInstance.background.delete()
             if not na(droppedInstance.cycleEndLine)
@@ -535,9 +452,6 @@ for key in map.keys(periods)
                     // Update historical instances
                     if numOfInstances >= 2
                         previousInstance = array.get(period.instances, numOfInstances - 2)
-                        // Drop true open line and label
-                        if period.showToLevel
-                            dropToLine(previousInstance)
                         // Update labels of previous historical instances
                         if showLabelsInput
                             previousInstance.highLabel.set_text(previousInstance.timeLabel + " " + previousInstance.highLabel.get_text())
@@ -559,19 +473,6 @@ for key in map.keys(periods)
                 // Update background
                 if not na(openInstance.background)
                     updateBackground(openInstance)
-
-                // Handle true open if enabled
-                if period.showToLevel
-                    // Check if we reached true open
-                    if na(openInstance.toLevel)
-                        openInstance.toLevel := getToLevel(period.period, period.quarterTf, period.session, TIMEZONE_NY)
-                        if not na(openInstance.toLevel)
-                            openInstance.toIndex := bar_index
-                            addToLine(openInstance, period.label, period.color, toStyleInput, toWidthInput)
-                    // Update true open line if exists
-                    else 
-                        if not na(openInstance.toLine)
-                            updateLine(openInstance, "to")
                 
                 // Handle cycles
                 if showCyclesInput
