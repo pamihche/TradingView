@@ -711,6 +711,14 @@ for key in map.keys(periods)
                                 currentCycle.cycleEndLine.set_x1(new_x)
                                 currentCycle.cycleEndLine.set_x2(new_x)
 
+                            // Make the lines/labels of the completed cycle visible
+                            if not na(currentCycle.highLine)
+                                currentCycle.highLine.set_color(cyclePeriod.color)
+                                currentCycle.lowLine.set_color(cyclePeriod.color)
+                            if not na(currentCycle.highLabel)
+                                currentCycle.highLabel.set_textcolor(cyclePeriod.color)
+                                currentCycle.lowLabel.set_textcolor(cyclePeriod.color)
+
                         
                         // Determine cycle limit
                         int cycleLimit = period.label == "AS" ? 5 : 3
@@ -720,6 +728,14 @@ for key in map.keys(periods)
                             if isFirstCycle
                                 period.firstCycleStarted := true // Set the flag after creating the first cycle
                             addHighLowLines(currentCycle, period.label + " " + cyclePeriod.label + str.tostring(numOfCycles + 1), cyclePeriod.suffixSeparator, cyclePeriod.color, cyclePeriod.style, cyclePeriod.width)
+
+                            // Make new drawings transparent until cycle is complete
+                            if not na(currentCycle.highLine)
+                                currentCycle.highLine.set_color(COLOR_TRANSPARENT)
+                                currentCycle.lowLine.set_color(COLOR_TRANSPARENT)
+                            if not na(currentCycle.highLabel)
+                                currentCycle.highLabel.set_textcolor(COLOR_TRANSPARENT)
+                                currentCycle.lowLabel.set_textcolor(COLOR_TRANSPARENT)
 
                             // Add hardcoded background color
                             cycleNum = numOfCycles + 1
