@@ -17,62 +17,39 @@ indicator('Advanced SMT Detector', 'SMT Advanced', overlay = true, max_labels_co
 // TYPE DEFINITIONS
 // =============================================================================
 
+// --- Custom Types for Hierarchical Swings ---
+type ICTMS
+    float   lastPrice
+    float   midPrice
+    float   prevPrice
+    float   lastCompPrice
+    float   midCompPrice
+    float   prevCompPrice
+    int     lastIndex
+    int     midIndex
+    int     prevIndex
+
 // Holds all the configuration and state for a single SMT timeframe engine.
-type SmtEngine
-    // -- Configuration (from inputs) --
+type SmtTimeframe
+    // -- Configuration --
     int id
     bool enabled
-    string htfTimeframe
-    int leftStrength
-    int rightStrength
-    color highColor
-    color lowColor
-    bool enableLtfDetection
-    string ltfTimeframe
-    bool enableAlerts
-    bool showPivotA
-    bool showPivots
+    string timeframe
+    color bullColor
+    color bearColor
 
-    // -- HTF History State --
-    float sessionHigh
-    float sessionLow
-    int sessionHighTime
-    int sessionLowTime
-    array<float> historyHighs
-    array<float> historyLows
-    array<int> historyTimesHigh
-    array<int> historyTimesLow
-    array<float> compHistoryHighs
-    array<float> compHistoryLows
-
-    // -- LTF State --
-    float ltfSessionHigh
-    float ltfSessionLow
-    int ltfSessionHighTime
-    int ltfSessionLowTime
-    float ltfCompSessionHigh
-    float ltfCompSessionLow
-    bool ltfMainAssetInvalidatedHigh
-    bool ltfCompAssetInvalidatedHigh
-    bool ltfMainAssetInvalidatedLow
-    bool ltfCompAssetInvalidatedLow
-    float ltfWatchlineHighPrice
-    float ltfWatchlineLowPrice
-
-    // -- SMT Logic State --
-    label pivotA_HighLabel
-    label pivotA_LowLabel
+    // -- Swing State --
+    ICTMS stHigh
+    ICTMS stLow
+    ICTMS itHigh
+    ICTMS itLow
+    ICTMS ltHigh
+    ICTMS ltLow
 
     // -- Drawing Management --
-    label visualPivotA_HighLabel
-    label visualPivotA_LowLabel
-    line ltfHighWatchline
-    label ltfHighLabel
-    line ltfLowWatchline
-    label ltfLowLabel
-    array<label> pivotLabels
-    array<line> confirmedLines
-    array<label> confirmedLabels
+    array<line> smtLines
+    array<label> smtLabels
+    array<label> debugLabels
 
 // =============================================================================
 // INPUTS
@@ -89,173 +66,123 @@ timeSession3 = input.session("0000-0700", "Trading Session 3", group = GRP_TIME_
 string GRP_MASTER_ASSET = "Comparison Asset"
 masterComparisonAsset = input.symbol("CME_MINI:ES1!", "Asset", group = GRP_MASTER_ASSET, tooltip = "Select the second asset to compare against the main chart's asset for detecting SMT.")
 
+string GRP_DEBUG = "Debug Settings"
+showPivotsDebug = input.bool(true, "Show Pivots (Debug)", group = GRP_DEBUG, tooltip = "Toggles the visibility of the underlying swing point markers. Useful for debugging the SMT logic.")
+
 // --- Timeframe 1: Weekly ---
 string GRP_TF1 = "Timeframe 1: Weekly"
-enableTF1 = input.bool(true, "Enable", group = GRP_TF1)
-timeframeTF1 = input.timeframe('W', 'Timeframe', group = GRP_TF1)
-leftBarsTF1 = input.int(1, 'Left Strength', group = GRP_TF1, minval = 1)
-rightBarsTF1 = input.int(1, 'Right Strength', group = GRP_TF1, minval = 1)
-phColorTF1 = input.color(color.new(#ff0000, 0), "High Color", group = GRP_TF1)
-plColorTF1 = input.color(color.new(#00ff00, 0), "Low Color", group = GRP_TF1)
-enableLtfTF1 = input.bool(true, "Enable LTF Detection", group = GRP_TF1)
-ltfTimeframeTF1 = input.timeframe('D', "LTF", group = GRP_TF1)
-enableAlertsTF1 = input.bool(true, "Enable Alerts", group = GRP_TF1)
-showPivotATF1 = input.bool(true, "Show Pivot 'A'", group = GRP_TF1)
-showPivotsTF1 = input.bool(true, 'Show Pivots', group = GRP_TF1)
+enableTF1 = input.bool(false, "Enable", group = GRP_TF1, inline="tf1")
+bullColorTF1 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF1, inline="tf1")
+bearColorTF1 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF1, inline="tf1")
 
 // --- Timeframe 2: Daily ---
 string GRP_TF2 = "Timeframe 2: Daily"
-enableTF2 = input.bool(true, "Enable", group = GRP_TF2)
-timeframeTF2 = input.timeframe('D', 'Timeframe', group = GRP_TF2)
-leftBarsTF2 = input.int(1, 'Left Strength', group = GRP_TF2, minval = 1)
-rightBarsTF2 = input.int(1, 'Right Strength', group = GRP_TF2, minval = 1)
-phColorTF2 = input.color(color.new(#ff8000, 0), "High Color", group = GRP_TF2)
-plColorTF2 = input.color(color.new(#0080ff, 0), "Low Color", group = GRP_TF2)
-enableLtfTF2 = input.bool(true, "Enable LTF Detection", group = GRP_TF2)
-ltfTimeframeTF2 = input.timeframe('240', "LTF", group = GRP_TF2)
-enableAlertsTF2 = input.bool(true, "Enable Alerts", group = GRP_TF2)
-showPivotATF2 = input.bool(true, "Show Pivot 'A'", group = GRP_TF2)
-showPivotsTF2 = input.bool(true, 'Show Pivots', group = GRP_TF2)
+enableTF2 = input.bool(false, "Enable", group = GRP_TF2, inline="tf2")
+bullColorTF2 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF2, inline="tf2")
+bearColorTF2 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF2, inline="tf2")
 
-// --- Timeframe 3: Sessions ---
-string GRP_TF3 = "Timeframe 3: Sessions"
-enableTF3 = input.bool(true, "Enable", group = GRP_TF3)
-timeframeTF3 = input.timeframe('240', 'Timeframe', group = GRP_TF3) // Defaulting to 4H for a session
-leftBarsTF3 = input.int(1, 'Left Strength', group = GRP_TF3, minval = 1)
-rightBarsTF3 = input.int(1, 'Right Strength', group = GRP_TF3, minval = 1)
-phColorTF3 = input.color(color.new(#ff00ff, 0), "High Color", group = GRP_TF3)
-plColorTF3 = input.color(color.new(#00ffff, 0), "Low Color", group = GRP_TF3)
-enableLtfTF3 = input.bool(true, "Enable LTF Detection", group = GRP_TF3)
-ltfTimeframeTF3 = input.timeframe('60', "LTF", group = GRP_TF3)
-enableAlertsTF3 = input.bool(true, "Enable Alerts", group = GRP_TF3)
-showPivotATF3 = input.bool(true, "Show Pivot 'A'", group = GRP_TF3)
-showPivotsTF3 = input.bool(true, 'Show Pivots', group = GRP_TF3)
+// --- Timeframe 3: 4-Hour ---
+string GRP_TF3 = "Timeframe 3: 4-Hour"
+enableTF3 = input.bool(false, "Enable", group = GRP_TF3, inline="tf3")
+bullColorTF3 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF3, inline="tf3")
+bearColorTF3 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF3, inline="tf3")
 
-// --- Timeframe 4: 4-Hour ---
-string GRP_TF4 = "Timeframe 4: 4-Hour"
-enableTF4 = input.bool(true, "Enable", group = GRP_TF4)
-timeframeTF4 = input.timeframe('240', 'Timeframe', group = GRP_TF4)
-leftBarsTF4 = input.int(1, 'Left Strength', group = GRP_TF4, minval = 1)
-rightBarsTF4 = input.int(1, 'Right Strength', group = GRP_TF4, minval = 1)
-phColorTF4 = input.color(color.new(#800080, 0), "High Color", group = GRP_TF4)
-plColorTF4 = input.color(color.new(#008080, 0), "Low Color", group = GRP_TF4)
-enableLtfTF4 = input.bool(true, "Enable LTF Detection", group = GRP_TF4)
-ltfTimeframeTF4 = input.timeframe('15', "LTF", group = GRP_TF4)
-enableAlertsTF4 = input.bool(true, "Enable Alerts", group = GRP_TF4)
-showPivotATF4 = input.bool(true, "Show Pivot 'A'", group = GRP_TF4)
-showPivotsTF4 = input.bool(true, 'Show Pivots', group = GRP_TF4)
+// --- Timeframe 4: 1-Hour ---
+string GRP_TF4 = "Timeframe 4: 1-Hour"
+enableTF4 = input.bool(false, "Enable", group = GRP_TF4, inline="tf4")
+bullColorTF4 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF4, inline="tf4")
+bearColorTF4 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF4, inline="tf4")
 
-// --- Timeframe 5: 1-Hour ---
-string GRP_TF5 = "Timeframe 5: 1-Hour"
-enableTF5 = input.bool(true, "Enable", group = GRP_TF5)
-timeframeTF5 = input.timeframe('60', 'Timeframe', group = GRP_TF5)
-leftBarsTF5 = input.int(1, 'Left Strength', group = GRP_TF5, minval = 1)
-rightBarsTF5 = input.int(1, 'Right Strength', group = GRP_TF5, minval = 1)
-phColorTF5 = input.color(color.new(#ffA500, 0), "High Color", group = GRP_TF5)
-plColorTF5 = input.color(color.new(#add8e6, 0), "Low Color", group = GRP_TF5)
-enableLtfTF5 = input.bool(true, "Enable LTF Detection", group = GRP_TF5)
-ltfTimeframeTF5 = input.timeframe('5', "LTF", group = GRP_TF5)
-enableAlertsTF5 = input.bool(true, "Enable Alerts", group = GRP_TF5)
-showPivotATF5 = input.bool(true, "Show Pivot 'A'", group = GRP_TF5)
-showPivotsTF5 = input.bool(true, 'Show Pivots', group = GRP_TF5)
+// --- Timeframe 5: 90-Minute ---
+string GRP_TF5 = "Timeframe 5: 90-Minute"
+enableTF5 = input.bool(false, "Enable", group = GRP_TF5, inline="tf5")
+bullColorTF5 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF5, inline="tf5")
+bearColorTF5 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF5, inline="tf5")
 
-// --- Timeframe 6: 90-Minute ---
-string GRP_TF6 = "Timeframe 6: 90-Minute"
-enableTF6 = input.bool(false, "Enable", group = GRP_TF6)
-timeframeTF6 = input.timeframe('90', 'Timeframe', group = GRP_TF6)
-leftBarsTF6 = input.int(1, 'Left Strength', group = GRP_TF6, minval = 1)
-rightBarsTF6 = input.int(1, 'Right Strength', group = GRP_TF6, minval = 1)
-phColorTF6 = input.color(color.new(#800000, 0), "High Color", group = GRP_TF6)
-plColorTF6 = input.color(color.new(#000080, 0), "Low Color", group = GRP_TF6)
-enableLtfTF6 = input.bool(true, "Enable LTF Detection", group = GRP_TF6)
-ltfTimeframeTF6 = input.timeframe('15', "LTF", group = GRP_TF6)
-enableAlertsTF6 = input.bool(true, "Enable Alerts", group = GRP_TF6)
-showPivotATF6 = input.bool(true, "Show Pivot 'A'", group = GRP_TF6)
-showPivotsTF6 = input.bool(true, 'Show Pivots', group = GRP_TF6)
+// --- Timeframe 6: 30-Minute ---
+string GRP_TF6 = "Timeframe 6: 30-Minute"
+enableTF6 = input.bool(true, "Enable", group = GRP_TF6, inline="tf6")
+bullColorTF6 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF6, inline="tf6")
+bearColorTF6 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF6, inline="tf6")
 
-// --- Timeframe 7: 30-Minute ---
-string GRP_TF7 = "Timeframe 7: 30-Minute"
-enableTF7 = input.bool(false, "Enable", group = GRP_TF7)
-timeframeTF7 = input.timeframe('30', 'Timeframe', group = GRP_TF7)
-leftBarsTF7 = input.int(1, 'Left Strength', group = GRP_TF7, minval = 1)
-rightBarsTF7 = input.int(1, 'Right Strength', group = GRP_TF7, minval = 1)
-phColorTF7 = input.color(color.new(#c0c0c0, 0), "High Color", group = GRP_TF7)
-plColorTF7 = input.color(color.new(#808080, 0), "Low Color", group = GRP_TF7)
-enableLtfTF7 = input.bool(true, "Enable LTF Detection", group = GRP_TF7)
-ltfTimeframeTF7 = input.timeframe('5', "LTF", group = GRP_TF7)
-enableAlertsTF7 = input.bool(true, "Enable Alerts", group = GRP_TF7)
-showPivotATF7 = input.bool(true, "Show Pivot 'A'", group = GRP_TF7)
-showPivotsTF7 = input.bool(true, 'Show Pivots', group = GRP_TF7)
+// --- Timeframe 7: 15-Minute ---
+string GRP_TF7 = "Timeframe 7: 15-Minute"
+enableTF7 = input.bool(false, "Enable", group = GRP_TF7, inline="tf7")
+bullColorTF7 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF7, inline="tf7")
+bearColorTF7 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF7, inline="tf7")
 
-// --- Timeframe 8: 15-Minute ---
-string GRP_TF8 = "Timeframe 8: 15-Minute"
-enableTF8 = input.bool(false, "Enable", group = GRP_TF8)
-timeframeTF8 = input.timeframe('15', 'Timeframe', group = GRP_TF8)
-leftBarsTF8 = input.int(1, 'Left Strength', group = GRP_TF8, minval = 1)
-rightBarsTF8 = input.int(1, 'Right Strength', group = GRP_TF8, minval = 1)
-phColorTF8 = input.color(color.new(#ffa07a, 0), "High Color", group = GRP_TF8)
-plColorTF8 = input.color(color.new(#20b2aa, 0), "Low Color", group = GRP_TF8)
-enableLtfTF8 = input.bool(true, "Enable LTF Detection", group = GRP_TF8)
-ltfTimeframeTF8 = input.timeframe('3', "LTF", group = GRP_TF8)
-enableAlertsTF8 = input.bool(true, "Enable Alerts", group = GRP_TF8)
-showPivotATF8 = input.bool(true, "Show Pivot 'A'", group = GRP_TF8)
-showPivotsTF8 = input.bool(true, 'Show Pivots', group = GRP_TF8)
+// --- Timeframe 8: 10-Minute ---
+string GRP_TF8 = "Timeframe 8: 10-Minute"
+enableTF8 = input.bool(false, "Enable", group = GRP_TF8, inline="tf8")
+bullColorTF8 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF8, inline="tf8")
+bearColorTF8 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF8, inline="tf8")
 
-// --- Timeframe 9: 10-Minute ---
-string GRP_TF9 = "Timeframe 9: 10-Minute"
-enableTF9 = input.bool(false, "Enable", group = GRP_TF9)
-timeframeTF9 = input.timeframe('10', 'Timeframe', group = GRP_TF9)
-leftBarsTF9 = input.int(1, 'Left Strength', group = GRP_TF9, minval = 1)
-rightBarsTF9 = input.int(1, 'Right Strength', group = GRP_TF9, minval = 1)
-phColorTF9 = input.color(color.new(#e9967a, 0), "High Color", group = GRP_TF9)
-plColorTF9 = input.color(color.new(#48d1cc, 0), "Low Color", group = GRP_TF9)
-enableLtfTF9 = input.bool(true, "Enable LTF Detection", group = GRP_TF9)
-ltfTimeframeTF9 = input.timeframe('1', "LTF", group = GRP_TF9)
-enableAlertsTF9 = input.bool(true, "Enable Alerts", group = GRP_TF9)
-showPivotATF9 = input.bool(true, "Show Pivot 'A'", group = GRP_TF9)
-showPivotsTF9 = input.bool(true, 'Show Pivots', group = GRP_TF9)
+// --- Timeframe 9: 5-Minute ---
+string GRP_TF9 = "Timeframe 9: 5-Minute"
+enableTF9 = input.bool(false, "Enable", group = GRP_TF9, inline="tf9")
+bullColorTF9 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF9, inline="tf9")
+bearColorTF9 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF9, inline="tf9")
 
-// --- Timeframe 10: 5-Minute ---
-string GRP_TF10 = "Timeframe 10: 5-Minute"
-enableTF10 = input.bool(false, "Enable", group = GRP_TF10)
-timeframeTF10 = input.timeframe('5', 'Timeframe', group = GRP_TF10)
-leftBarsTF10 = input.int(1, 'Left Strength', group = GRP_TF10, minval = 1)
-rightBarsTF10 = input.int(1, 'Right Strength', group = GRP_TF10, minval = 1)
-phColorTF10 = input.color(color.new(#f08080, 0), "High Color", group = GRP_TF10)
-plColorTF10 = input.color(color.new(#00ced1, 0), "Low Color", group = GRP_TF10)
-enableLtfTF10 = input.bool(true, "Enable LTF Detection", group = GRP_TF10)
-ltfTimeframeTF10 = input.timeframe('1', "LTF", group = GRP_TF10)
-enableAlertsTF10 = input.bool(true, "Enable Alerts", group = GRP_TF10)
-showPivotATF10 = input.bool(true, "Show Pivot 'A'", group = GRP_TF10)
-showPivotsTF10 = input.bool(true, 'Show Pivots', group = GRP_TF10)
+// --- Timeframe 10: 3-Minute ---
+string GRP_TF10 = "Timeframe 10: 3-Minute"
+enableTF10 = input.bool(false, "Enable", group = GRP_TF10, inline="tf10")
+bullColorTF10 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF10, inline="tf10")
+bearColorTF10 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF10, inline="tf10")
 
-// --- Timeframe 11: 3-Minute ---
-string GRP_TF11 = "Timeframe 11: 3-Minute"
-enableTF11 = input.bool(false, "Enable", group = GRP_TF11)
-timeframeTF11 = input.timeframe('3', 'Timeframe', group = GRP_TF11)
-leftBarsTF11 = input.int(1, 'Left Strength', group = GRP_TF11, minval = 1)
-rightBarsTF11 = input.int(1, 'Right Strength', group = GRP_TF11, minval = 1)
-phColorTF11 = input.color(color.new(#cd5c5c, 0), "High Color", group = GRP_TF11)
-plColorTF11 = input.color(color.new(#40e0d0, 0), "Low Color", group = GRP_TF11)
-enableLtfTF11 = input.bool(true, "Enable LTF Detection", group = GRP_TF11)
-ltfTimeframeTF11 = input.timeframe('1', "LTF", group = GRP_TF11)
-enableAlertsTF11 = input.bool(true, "Enable Alerts", group = GRP_TF11)
-showPivotATF11 = input.bool(true, "Show Pivot 'A'", group = GRP_TF11)
-showPivotsTF11 = input.bool(true, 'Show Pivots', group = GRP_TF11)
+// --- Timeframe 11: 1-Minute ---
+string GRP_TF11 = "Timeframe 11: 1-Minute"
+enableTF11 = input.bool(false, "Enable", group = GRP_TF11, inline="tf11")
+bullColorTF11 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF11, inline="tf11")
+bearColorTF11 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF11, inline="tf11")
 
-// --- Timeframe 12: 1-Minute ---
-string GRP_TF12 = "Timeframe 12: 1-Minute"
-enableTF12 = input.bool(false, "Enable", group = GRP_TF12)
-timeframeTF12 = input.timeframe('1', 'Timeframe', group = GRP_TF12)
-leftBarsTF12 = input.int(1, 'Left Strength', group = GRP_TF12, minval = 1)
-rightBarsTF12 = input.int(1, 'Right Strength', group = GRP_TF12, minval = 1)
-phColorTF12 = input.color(color.new(#b22222, 0), "High Color", group = GRP_TF12)
-plColorTF12 = input.color(color.new(#4682b4, 0), "Low Color", group = GRP_TF12)
-enableLtfTF12 = input.bool(false, "Enable LTF Detection", group = GRP_TF12) // Disabled by default for 1M
-ltfTimeframeTF12 = input.timeframe('1', "LTF", group = GRP_TF12)
-enableAlertsTF12 = input.bool(true, "Enable Alerts", group = GRP_TF12)
-showPivotATF12 = input.bool(true, "Show Pivot 'A'", group = GRP_TF12)
-showPivotsTF12 = input.bool(true, 'Show Pivots', group = GRP_TF12)
+// --- Timeframe 12: Sessions ---
+string GRP_TF12 = "Timeframe 12: Sessions"
+enableTF12 = input.bool(false, "Enable", group = GRP_TF12, inline="tf12")
+bullColorTF12 = input.color(color.new(#2962FF, 40), "Bullish", group = GRP_TF12, inline="tf12")
+bearColorTF12 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF12, inline="tf12")
+
+// =============================================================================
+// HIERARCHICAL SWING LOGIC
+// =============================================================================
+
+// @function_description Detects a 3-point swing pattern.
+// @param price (float) The current price point.
+// @param prevPrice (float) The previous price point.
+// @param prevPrice2 (float) The price point before the previous one.
+// @param isSwingHigh (bool) If true, checks for a swing high; otherwise, checks for a swing low.
+// @returns (bool) True if a swing is detected, false otherwise.
+queryPatterns(price, prevPrice, prevPrice2, isSwingHigh) =>
+    if isSwingHigh
+        prevPrice2 < prevPrice and prevPrice >= price
+    else
+        prevPrice2 > prevPrice and prevPrice <= price
+
+// @function_description Method to query a swing pattern from an ICTMS object.
+// @param _this (ICTMS) The ICTMS object instance.
+// @param isSwingHigh (bool) If true, checks for a swing high.
+// @returns (bool) True if a swing is detected, false otherwise.
+method queryPatterns(ICTMS _this, isSwingHigh) =>
+    if isSwingHigh
+        _this.prevPrice < _this.midPrice and _this.midPrice >= _this.lastPrice
+    else
+        _this.prevPrice > _this.midPrice and _this.midPrice <= _this.lastPrice
+
+// @function_description Method to update the state of an ICTMS object with a new swing point.
+// @param _this (ICTMS) The ICTMS object instance.
+// @param price (float) The price of the new swing point on the main asset.
+// @param compPrice (float) The price of the new swing point on the comparison asset.
+// @param index (int) The bar index of the new swing point.
+method updatePattern(ICTMS _this, price, compPrice, index) =>
+    _this.prevPrice := _this.midPrice
+    _this.midPrice := _this.lastPrice
+    _this.lastPrice := price
+    _this.prevCompPrice := _this.midCompPrice
+    _this.midCompPrice := _this.lastCompPrice
+    _this.lastCompPrice := compPrice
+    _this.prevIndex := _this.midIndex
+    _this.midIndex := _this.lastIndex
+    _this.lastIndex := index
+
 
 // =============================================================================
 // CONSTANTS & GENERAL FUNCTIONS
@@ -286,318 +213,80 @@ formatTimeframe(string tf) =>
             result := str.tostring(int(tf_minutes)) + 'M'
     result
 
-checkForPivot(array<float> history, int pivot_idx, int left_strength, int right_strength, bool is_high) =>
-    is_pivot = true
-    if array.size(history) < left_strength + right_strength + 1 or pivot_idx < left_strength or pivot_idx > array.size(history) - 1 - right_strength
-        is_pivot := false
-    else
-        pivot_price = array.get(history, pivot_idx)
-        for i = 0 to left_strength + right_strength
-            if i != left_strength
-                neighbor_price = array.get(history, pivot_idx - left_strength + i)
-                if is_high and neighbor_price >= pivot_price
-                    is_pivot := false
-                    break
-                if not is_high and neighbor_price <= pivot_price
-                    is_pivot := false
-                    break
-    is_pivot
-
-drawPivotCross(array<label> labelsArray, int bar_time, float price, color p_color) =>
-    label newLabel = label.new(bar_time, price, xloc=xloc.bar_time, style=label.style_xcross, color=p_color, size=size.tiny)
-    array.push(labelsArray, newLabel)
-    if array.size(labelsArray) > MAX_DRAWING_OBJECTS
-        label.delete(array.shift(labelsArray))
-
-cleanupSmtDrawings(SmtEngine engine) =>
-    for l in engine.confirmedLines
+cleanupEngineDrawings(SmtTimeframe engine) =>
+    for l in engine.smtLines
         line.delete(l)
-    array.clear(engine.confirmedLines)
-    for l in engine.confirmedLabels
+    array.clear(engine.smtLines)
+    for l in engine.smtLabels
         label.delete(l)
-    array.clear(engine.confirmedLabels)
-    label.delete(engine.pivotA_HighLabel), label.delete(engine.visualPivotA_HighLabel)
-    label.delete(engine.pivotA_LowLabel), label.delete(engine.visualPivotA_LowLabel)
-    line.delete(engine.ltfHighWatchline), label.delete(engine.ltfHighLabel)
-    line.delete(engine.ltfLowWatchline), label.delete(engine.ltfLowLabel)
+    array.clear(engine.smtLabels)
+
+// =============================================================================
+// DRAWING FUNCTIONS
+// =============================================================================
+
+// @function_description Draws the SMT lines and labels on the chart.
+// @param engine (SmtTimeframe) The engine instance containing state and settings.
+// @param p1_index (int) The bar index of the first pivot.
+// @param p1_price (float) The price of the first pivot.
+// @param p2_index (int) The bar index of the second pivot.
+// @param p2_price (float) The price of the second pivot.
+// @param smtType (string) The type of SMT ("Regular" or "Momentum").
+// @param isBullish (bool) True for a bullish SMT, false for a bearish one.
+drawSmt(SmtTimeframe engine, int p1_index, float p1_price, int p2_index, float p2_price, string smtType, bool isBullish) =>
+    int MAX_SMT_DRAWINGS_PER_ENGINE = 50
+    lineStyle = smtType == "Regular" ? line.style_solid : line.style_dashed
+    lineWidth = smtType == "Regular" ? 2 : 1
+    lineColor = isBullish ? engine.bullColor : engine.bearColor
+
+    // Create the SMT line
+    newLine = line.new(p1_index, p1_price, p2_index, p2_price, xloc=xloc.bar_index, color=lineColor, style=lineStyle, width=lineWidth)
+    array.push(engine.smtLines, newLine)
+
+    // Create the SMT label
+    labelText = str.format("{0} {1} SMT", formatTimeframe(engine.timeframe), smtType)
+    labelStyle = isBullish ? label.style_label_up : label.style_label_down
+    newLabel = label.new(p2_index, p2_price, text=labelText, xloc=xloc.bar_index, yloc=yloc.price, color=lineColor, textcolor=color.white, style=labelStyle, size=size.small)
+    array.push(engine.smtLabels, newLabel)
+
+    // Garbage Collection
+    if array.size(engine.smtLines) > MAX_SMT_DRAWINGS_PER_ENGINE
+        line.delete(array.shift(engine.smtLines))
+
+    if array.size(engine.smtLabels) > MAX_SMT_DRAWINGS_PER_ENGINE
+        label.delete(array.shift(engine.smtLabels))
 
 // =============================================================================
 // CORE ENGINE FUNCTIONS
 // =============================================================================
 
-// Manages the collection of HTF price history for a single SMT engine.
-collectHistory(SmtEngine engine) =>
-    is_new_htf_bar = nz(ta.change(time(engine.htfTimeframe))) != 0
-
-    // Track the high and low of the current HTF session in real-time.
-    if is_new_htf_bar
-        engine.sessionHigh := high
-        engine.sessionLow := low
-        engine.sessionHighTime := time
-        engine.sessionLowTime := time
-    else
-        if high >= engine.sessionHigh
-            engine.sessionHigh := high
-            engine.sessionHighTime := time
-        if low <= engine.sessionLow
-            engine.sessionLow := low
-            engine.sessionLowTime := time
-
-    // When the HTF bar closes, store its data and check for pivots.
-    if is_new_htf_bar
-        // Store the main asset's data from the previous bar.
-        array.push(engine.historyHighs, engine.sessionHigh[1])
-        array.push(engine.historyTimesHigh, engine.sessionHighTime[1])
-        array.push(engine.historyLows, engine.sessionLow[1])
-        array.push(engine.historyTimesLow, engine.sessionLowTime[1])
-
-        // Request and store the comparison asset's data for the same closed bar.
-        float comp_high = request.security(masterComparisonAsset, engine.htfTimeframe, high[1], lookahead=barmerge.lookahead_off)
-        float comp_low = request.security(masterComparisonAsset, engine.htfTimeframe, low[1], lookahead=barmerge.lookahead_off)
-        array.push(engine.compHistoryHighs, comp_high)
-        array.push(engine.compHistoryLows, comp_low)
-
-        // Manage history array sizes to prevent memory overflow.
-        if array.size(engine.historyHighs) > MAX_HISTORY_SIZE
-            array.shift(engine.historyHighs)
-            array.shift(engine.historyTimesHigh)
-            array.shift(engine.historyLows)
-            array.shift(engine.historyTimesLow)
-            array.shift(engine.compHistoryHighs)
-            array.shift(engine.compHistoryLows)
-
-        // Check for and draw new pivots if enabled.
-        if engine.showPivots
-            pivot_check_index = array.size(engine.historyHighs) - 1 - engine.rightStrength
-            if pivot_check_index >= 0
-                if checkForPivot(engine.historyHighs, pivot_check_index, engine.leftStrength, engine.rightStrength, true)
-                    drawPivotCross(engine.pivotLabels, array.get(engine.historyTimesHigh, pivot_check_index), array.get(engine.historyHighs, pivot_check_index), engine.highColor)
-                if checkForPivot(engine.historyLows, pivot_check_index, engine.leftStrength, engine.rightStrength, false)
-                    drawPivotCross(engine.pivotLabels, array.get(engine.historyTimesLow, pivot_check_index), array.get(engine.historyLows, pivot_check_index), engine.lowColor)
-    is_new_htf_bar
-
-
-// Processes the core SMT logic for a single engine.
-processSmtLogic(SmtEngine engine, bool is_new_htf_bar) =>
-    bool isWithinTimeSession = isWithinAnySession()
-    string shortAssetName = getTicker(masterComparisonAsset)
-    float atr = ta.atr(14)
-    float y_offset = atr * 0.1
-
-    if is_new_htf_bar
-        int pivot_idx = array.size(engine.historyHighs) - 1 - engine.rightStrength
-        if pivot_idx >= 0
-            // --- Check for Bearish SMT ---
-            bool is_main_pivot_high = checkForPivot(engine.historyHighs, pivot_idx, engine.leftStrength, engine.rightStrength, true)
-            bool is_comp_pivot_high = checkForPivot(engine.compHistoryHighs, pivot_idx, engine.leftStrength, engine.rightStrength, true)
-            if is_main_pivot_high and is_comp_pivot_high
-                float mainHtfPivotHigh = array.get(engine.historyHighs, pivot_idx)
-                float compHtfPivotHigh = array.get(engine.compHistoryHighs, pivot_idx)
-                int smt_main_pivot_time = array.get(engine.historyTimesHigh, pivot_idx)
-                if not na(engine.pivotA_HighLabel)
-                    if (mainHtfPivotHigh - label.get_y(engine.pivotA_HighLabel)) * (compHtfPivotHigh - str.tonumber(label.get_text(engine.pivotA_HighLabel))) < 0
-                        bool wasPivotARun = false
-                        for i = pivot_idx - 1 to 0
-                            if array.get(engine.historyTimesHigh, i) > label.get_x(engine.pivotA_HighLabel)
-                                if array.get(engine.historyHighs, i) > label.get_y(engine.pivotA_HighLabel)
-                                    wasPivotARun := true
-                                    break
-                            else
-                                break
-                        if not wasPivotARun and isWithinTimeSession
-                            string confirmedTextTemplate = "{0} vs {1}\nTimeframe: {2}\nStrength: {3}-{4}"
-                            string baseInfoText = str.format(confirmedTextTemplate, syminfo.ticker, shortAssetName, formatTimeframe(engine.htfTimeframe), str.tostring(engine.leftStrength), str.tostring(engine.rightStrength))
-                            line newLine = line.new(label.get_x(engine.pivotA_HighLabel), label.get_y(engine.pivotA_HighLabel), smt_main_pivot_time, mainHtfPivotHigh, xloc = xloc.bar_time, color=color.new(engine.highColor, 40), width=2)
-                            label newLabel = label.new(smt_main_pivot_time, mainHtfPivotHigh + y_offset, "SMT Bearish\n" + baseInfoText + "\nStatus: Confirmed", xloc = xloc.bar_time, color=color.new(engine.highColor, 75), textcolor=color.white, style=label.style_label_down, size=size.normal, textalign=text.align_left)
-                            array.push(engine.confirmedLines, newLine)
-                            array.push(engine.confirmedLabels, newLabel)
-                            if engine.enableAlerts
-                                alert("Confirmed Bearish SMT on SMT TF" + str.tostring(engine.id), alert.freq_once_per_bar)
-                
-                // Cleanup and set new Pivot A
-                line.delete(engine.ltfHighWatchline), engine.ltfHighWatchline := na, label.delete(engine.ltfHighLabel), engine.ltfHighLabel := na, engine.ltfWatchlineHighPrice := na
-                label.delete(engine.pivotA_HighLabel), label.delete(engine.visualPivotA_HighLabel)
-                engine.pivotA_HighLabel := label.new(smt_main_pivot_time, mainHtfPivotHigh, str.tostring(compHtfPivotHigh), xloc = xloc.bar_time, style=label.style_none, textcolor=color.new(color.white, 100))
-                engine.visualPivotA_HighLabel := label.new(smt_main_pivot_time, mainHtfPivotHigh + y_offset, "A", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(engine.highColor, 25), textcolor=color.white, size=size.small, tooltip="Pivot A High")
-                engine.ltfMainAssetInvalidatedHigh := false, engine.ltfCompAssetInvalidatedHigh := false
-
-            // --- Check for Bullish SMT ---
-            bool is_main_pivot_low = checkForPivot(engine.historyLows, pivot_idx, engine.leftStrength, engine.rightStrength, false)
-            bool is_comp_pivot_low = checkForPivot(engine.compHistoryLows, pivot_idx, engine.leftStrength, engine.rightStrength, false)
-            if is_main_pivot_low and is_comp_pivot_low
-                float mainHtfPivotLow = array.get(engine.historyLows, pivot_idx)
-                float compHtfPivotLow = array.get(engine.compHistoryLows, pivot_idx)
-                int smt_main_pivot_time = array.get(engine.historyTimesLow, pivot_idx)
-                if not na(engine.pivotA_LowLabel)
-                    if (mainHtfPivotLow - label.get_y(engine.pivotA_LowLabel)) * (compHtfPivotLow - str.tonumber(label.get_text(engine.pivotA_LowLabel))) < 0
-                        bool wasPivotARun = false
-                        for i = pivot_idx - 1 to 0
-                            if array.get(engine.historyTimesLow, i) > label.get_x(engine.pivotA_LowLabel)
-                                if array.get(engine.historyLows, i) < label.get_y(engine.pivotA_LowLabel)
-                                    wasPivotARun := true
-                                    break
-                            else
-                                break
-                        if not wasPivotARun and isWithinTimeSession
-                            string confirmedTextTemplate = "{0} vs {1}\nTimeframe: {2}\nStrength: {3}-{4}"
-                            string baseInfoText = str.format(confirmedTextTemplate, syminfo.ticker, shortAssetName, formatTimeframe(engine.htfTimeframe), str.tostring(engine.leftStrength), str.tostring(engine.rightStrength))
-                            line newLine = line.new(label.get_x(engine.pivotA_LowLabel), label.get_y(engine.pivotA_LowLabel), smt_main_pivot_time, mainHtfPivotLow, xloc = xloc.bar_time, color=color.new(engine.lowColor, 40), width=2)
-                            label newLabel = label.new(smt_main_pivot_time, mainHtfPivotLow - y_offset, "SMT Bullish\n" + baseInfoText + "\nStatus: Confirmed", xloc = xloc.bar_time, color=color.new(engine.lowColor, 75), textcolor=color.white, style=label.style_label_up, size=size.normal, textalign=text.align_left)
-                            array.push(engine.confirmedLines, newLine)
-                            array.push(engine.confirmedLabels, newLabel)
-                            if engine.enableAlerts
-                                alert("Confirmed Bullish SMT on SMT TF" + str.tostring(engine.id), alert.freq_once_per_bar)
-
-                // Cleanup and set new Pivot A
-                line.delete(engine.ltfLowWatchline), engine.ltfLowWatchline := na, label.delete(engine.ltfLowLabel), engine.ltfLowLabel := na, engine.ltfWatchlineLowPrice := na
-                label.delete(engine.pivotA_LowLabel), label.delete(engine.visualPivotA_LowLabel)
-                engine.pivotA_LowLabel := label.new(smt_main_pivot_time, mainHtfPivotLow, str.tostring(compHtfPivotLow), xloc = xloc.bar_time, style=label.style_none, textcolor=color.new(color.white, 100))
-                engine.visualPivotA_LowLabel := label.new(smt_main_pivot_time, mainHtfPivotLow - y_offset, "A", xloc=xloc.bar_time, style=label.style_label_up, color=color.new(engine.lowColor, 25), textcolor=color.white, size=size.small, tooltip="Pivot A Low")
-                engine.ltfMainAssetInvalidatedLow := false, engine.ltfCompAssetInvalidatedLow := false
-
-    // --- Early LTF Detection Logic ---
-    if engine.enableLtfDetection and engine.ltfTimeframe != '' and timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(engine.ltfTimeframe)
-        bool is_new_intraday_bar = ta.change(time(engine.ltfTimeframe)) != 0
-        
-        var string usedLtfTimeframe = engine.ltfTimeframe
-        [intra_comp_high_base, intra_comp_low_base] = request.security(masterComparisonAsset, engine.ltfTimeframe, [high, low], lookahead=barmerge.lookahead_off)
-        usedLtfTimeframe := engine.ltfTimeframe
-        
-        float intra_comp_high = intra_comp_high_base
-        float intra_comp_low = intra_comp_low_base
-
-        if na(intra_comp_high)
-            [intra_comp_high, intra_comp_low] = request.security(masterComparisonAsset, '15', [high, low], lookahead=barmerge.lookahead_off)
-            usedLtfTimeframe := '15'
-        if na(intra_comp_high)
-            [intra_comp_high, intra_comp_low] = request.security(masterComparisonAsset, '60', [high, low], lookahead=barmerge.lookahead_off)
-            usedLtfTimeframe := '60'
-
-        if is_new_intraday_bar
-            engine.ltfSessionHigh := high, engine.ltfSessionLow := low, engine.ltfSessionHighTime := time, engine.ltfSessionLowTime := time
-            engine.ltfCompSessionHigh := intra_comp_high, engine.ltfCompSessionLow := intra_comp_low
-        else
-            if high > engine.ltfSessionHigh
-                engine.ltfSessionHigh := high, engine.ltfSessionHighTime := time
-            if low < engine.ltfSessionLow
-                engine.ltfSessionLow := low, engine.ltfSessionLowTime := time
-            if intra_comp_high > engine.ltfCompSessionHigh
-                engine.ltfCompSessionHigh := intra_comp_high
-            if intra_comp_low < engine.ltfCompSessionLow
-                engine.ltfCompSessionLow := intra_comp_low
-        
-        if is_new_intraday_bar
-            float ltf_main_high = engine.ltfSessionHigh[1], float ltf_main_low = engine.ltfSessionLow[1]
-            float ltf_comp_high = engine.ltfCompSessionHigh[1], float ltf_comp_low = engine.ltfCompSessionLow[1]
-            
-            if not na(engine.pivotA_HighLabel)
-                if not engine.ltfMainAssetInvalidatedHigh and ltf_main_high > label.get_y(engine.pivotA_HighLabel)
-                    engine.ltfMainAssetInvalidatedHigh := true
-                if not engine.ltfCompAssetInvalidatedHigh and ltf_comp_high > str.tonumber(label.get_text(engine.pivotA_HighLabel))
-                    engine.ltfCompAssetInvalidatedHigh := true
-                if engine.ltfMainAssetInvalidatedHigh and engine.ltfCompAssetInvalidatedHigh
-                    label.delete(engine.pivotA_HighLabel), engine.pivotA_HighLabel := na, label.delete(engine.visualPivotA_HighLabel), engine.visualPivotA_HighLabel := na
-                    line.delete(engine.ltfHighWatchline), engine.ltfHighWatchline := na, label.delete(engine.ltfHighLabel), engine.ltfHighLabel := na
-            
-            if not na(engine.pivotA_LowLabel)
-                if not engine.ltfMainAssetInvalidatedLow and ltf_main_low < label.get_y(engine.pivotA_LowLabel)
-                    engine.ltfMainAssetInvalidatedLow := true
-                if not engine.ltfCompAssetInvalidatedLow and ltf_comp_low < str.tonumber(label.get_text(engine.pivotA_LowLabel))
-                    engine.ltfCompAssetInvalidatedLow := true
-                if engine.ltfMainAssetInvalidatedLow and engine.ltfCompAssetInvalidatedLow
-                    label.delete(engine.pivotA_LowLabel), engine.pivotA_LowLabel := na, label.delete(engine.visualPivotA_LowLabel), engine.visualPivotA_LowLabel := na
-                    line.delete(engine.ltfLowWatchline), engine.ltfLowWatchline := na, label.delete(engine.ltfLowLabel), engine.ltfLowLabel := na
-            
-            int ltf_main_high_time = engine.ltfSessionHighTime[1], int ltf_main_low_time = engine.ltfSessionLowTime[1]
-            if not na(engine.pivotA_HighLabel)
-                bool alreadyInvalidated = engine.ltfMainAssetInvalidatedHigh and engine.ltfCompAssetInvalidatedHigh
-                if not alreadyInvalidated and (ltf_main_high - label.get_y(engine.pivotA_HighLabel)) * (ltf_comp_high - str.tonumber(label.get_text(engine.pivotA_HighLabel))) < 0 and (na(engine.ltfWatchlineHighPrice) or ltf_main_high > engine.ltfWatchlineHighPrice) and isWithinTimeSession
-                    string ltfBaseTextTemplate = "{0} vs {1}\nTimeframe: {2}\nStrength: {3}-{4}\nLTF Detection: {5}"
-                    string ltfBaseInfoText = str.format(ltfBaseTextTemplate, syminfo.ticker, shortAssetName, formatTimeframe(engine.htfTimeframe), str.tostring(engine.leftStrength), str.tostring(engine.rightStrength), formatTimeframe(usedLtfTimeframe))
-                    line.delete(engine.ltfHighWatchline), label.delete(engine.ltfHighLabel)
-                    engine.ltfHighWatchline := line.new(label.get_x(engine.pivotA_HighLabel), label.get_y(engine.pivotA_HighLabel), ltf_main_high_time, ltf_main_high, xloc = xloc.bar_time, style=line.style_dashed, color=engine.highColor, width=1)
-                    engine.ltfHighLabel := label.new(ltf_main_high_time, ltf_main_high + y_offset, "SMT Bearish\n" + ltfBaseInfoText + "\nStatus: Unconfirmed", xloc = xloc.bar_time, color=color.new(engine.highColor, 75), textcolor=color.white, style=label.style_label_down, textalign=text.align_left)
-                    engine.ltfWatchlineHighPrice := ltf_main_high, engine.ltfMainAssetInvalidatedHigh := false, engine.ltfCompAssetInvalidatedHigh := false
-                    if engine.enableAlerts
-                        alert("Potential Bearish SMT on SMT TF" + str.tostring(engine.id), alert.freq_once_per_bar)
-
-            if not na(engine.pivotA_LowLabel)
-                bool alreadyInvalidated = engine.ltfMainAssetInvalidatedLow and engine.ltfCompAssetInvalidatedLow
-                if not alreadyInvalidated and (ltf_main_low - label.get_y(engine.pivotA_LowLabel)) * (ltf_comp_low - str.tonumber(label.get_text(engine.pivotA_LowLabel))) < 0 and (na(engine.ltfWatchlineLowPrice) or ltf_main_low < engine.ltfWatchlineLowPrice) and isWithinTimeSession
-                    string ltfBaseTextTemplate = "{0} vs {1}\nTimeframe: {2}\nStrength: {3}-{4}\nLTF Detection: {5}"
-                    string ltfBaseInfoText = str.format(ltfBaseTextTemplate, syminfo.ticker, shortAssetName, formatTimeframe(engine.htfTimeframe), str.tostring(engine.leftStrength), str.tostring(engine.rightStrength), formatTimeframe(usedLtfTimeframe))
-                    line.delete(engine.ltfLowWatchline), label.delete(engine.ltfLowLabel)
-                    engine.ltfLowWatchline := line.new(label.get_x(engine.pivotA_LowLabel), label.get_y(engine.pivotA_LowLabel), ltf_main_low_time, ltf_main_low, xloc = xloc.bar_time, style=line.style_dashed, color=engine.lowColor, width=1)
-                    engine.ltfLowLabel := label.new(ltf_main_low_time, ltf_main_low - y_offset, "SMT Bullish\n" + ltfBaseInfoText + "\nStatus: Unconfirmed", xloc = xloc.bar_time, color=color.new(engine.lowColor, 75), textcolor=color.white, style=label.style_label_up, textalign=text.align_left)
-                    engine.ltfWatchlineLowPrice := ltf_main_low, engine.ltfMainAssetInvalidatedLow := false, engine.ltfCompAssetInvalidatedLow := false
-                    if engine.enableAlerts
-                        alert("Potential Bullish SMT on SMT TF" + str.tostring(engine.id), alert.freq_once_per_bar)
-
-    // --- Pivot A Visibility ---
-    if not na(engine.visualPivotA_HighLabel)
-        label.set_color(engine.visualPivotA_HighLabel, engine.showPivotA ? color.new(engine.highColor, 25) : color.new(color.white, 100))
-        label.set_textcolor(engine.visualPivotA_HighLabel, engine.showPivotA ? color.white : color.new(color.white, 100))
-    if not na(engine.visualPivotA_LowLabel)
-        label.set_color(engine.visualPivotA_LowLabel, engine.showPivotA ? color.new(engine.lowColor, 25) : color.new(color.white, 100))
-        label.set_textcolor(engine.visualPivotA_LowLabel, engine.showPivotA ? color.white : color.new(color.white, 100))
+// This section will be rebuilt with the new data pipeline and SMT logic.
 
 // =============================================================================
-// ENGINE CONSTRUCTOR
+// ENGINE CONSTRUCTOR & INITIALIZATION
 // =============================================================================
 
-// Constructor function to initialize a new SmtEngine object.
-newSmtEngine(int id, bool enabled, string htf, int left, int right, color highColor, color lowColor, bool enableLtf, string ltf, bool alerts, bool showA, bool showPivots) =>
-    SmtEngine.new(
+// Constructor function to initialize a new SmtTimeframe object.
+newSmtTimeframe(int id, bool enabled, string timeframe, color bullColor, color bearColor) =>
+    SmtTimeframe.new(
          id = id,
          enabled = enabled,
-         htfTimeframe = htf,
-         leftStrength = left,
-         rightStrength = right,
-         highColor = highColor,
-         lowColor = lowColor,
-         enableLtfDetection = enableLtf,
-         ltfTimeframe = ltf,
-         enableAlerts = alerts,
-         showPivotA = showA,
-         showPivots = showPivots,
+         timeframe = timeframe,
+         bullColor = bullColor,
+         bearColor = bearColor,
          
-         // Initialize state variables
-         sessionHigh = high,
-         sessionLow = low,
-         sessionHighTime = time,
-         sessionLowTime = time,
-         historyHighs = array.new_float(),
-         historyLows = array.new_float(),
-         historyTimesHigh = array.new_int(),
-         historyTimesLow = array.new_int(),
-         compHistoryHighs = array.new_float(),
-         compHistoryLows = array.new_float(),
+         // Initialize swing state
+         stHigh = ICTMS.new(),
+         stLow = ICTMS.new(),
+         itHigh = ICTMS.new(),
+         itLow = ICTMS.new(),
+         ltHigh = ICTMS.new(),
+         ltLow = ICTMS.new(),
          
-         ltfSessionHigh = high,
-         ltfSessionLow = low,
-         ltfSessionHighTime = time,
-         ltfSessionLowTime = time,
-         ltfCompSessionHigh = na,
-         ltfCompSessionLow = na,
-         ltfMainAssetInvalidatedHigh = false,
-         ltfCompAssetInvalidatedHigh = false,
-         ltfMainAssetInvalidatedLow = false,
-         ltfCompAssetInvalidatedLow = false,
-         ltfWatchlineHighPrice = na,
-         ltfWatchlineLowPrice = na,
-         
-         pivotA_HighLabel = na,
-         pivotA_LowLabel = na,
-         
-         visualPivotA_HighLabel = na,
-         visualPivotA_LowLabel = na,
-         ltfHighWatchline = na,
-         ltfHighLabel = na,
-         ltfLowWatchline = na,
-         ltfLowLabel = na,
-         pivotLabels = array.new_label(),
-         confirmedLines = array.new_line(),
-         confirmedLabels = array.new_label()
+         // Initialize drawing management arrays
+         smtLines = array.new_line(),
+         smtLabels = array.new_label(),
+         debugLabels = array.new_label()
      )
 
 // =============================================================================
@@ -605,25 +294,91 @@ newSmtEngine(int id, bool enabled, string htf, int left, int right, color highCo
 // =============================================================================
 
 // Initialize all 12 SMT engine instances in an array.
-var SmtEngine[] smtEngines = array.from(
-     newSmtEngine(1, enableTF1, timeframeTF1, leftBarsTF1, rightBarsTF1, phColorTF1, plColorTF1, enableLtfTF1, ltfTimeframeTF1, enableAlertsTF1, showPivotATF1, showPivotsTF1),
-     newSmtEngine(2, enableTF2, timeframeTF2, leftBarsTF2, rightBarsTF2, phColorTF2, plColorTF2, enableLtfTF2, ltfTimeframeTF2, enableAlertsTF2, showPivotATF2, showPivotsTF2),
-     newSmtEngine(3, enableTF3, timeframeTF3, leftBarsTF3, rightBarsTF3, phColorTF3, plColorTF3, enableLtfTF3, ltfTimeframeTF3, enableAlertsTF3, showPivotATF3, showPivotsTF3),
-     newSmtEngine(4, enableTF4, timeframeTF4, leftBarsTF4, rightBarsTF4, phColorTF4, plColorTF4, enableLtfTF4, ltfTimeframeTF4, enableAlertsTF4, showPivotATF4, showPivotsTF4),
-     newSmtEngine(5, enableTF5, timeframeTF5, leftBarsTF5, rightBarsTF5, phColorTF5, plColorTF5, enableLtfTF5, ltfTimeframeTF5, enableAlertsTF5, showPivotATF5, showPivotsTF5),
-     newSmtEngine(6, enableTF6, timeframeTF6, leftBarsTF6, rightBarsTF6, phColorTF6, plColorTF6, enableLtfTF6, ltfTimeframeTF6, enableAlertsTF6, showPivotATF6, showPivotsTF6),
-     newSmtEngine(7, enableTF7, timeframeTF7, leftBarsTF7, rightBarsTF7, phColorTF7, plColorTF7, enableLtfTF7, ltfTimeframeTF7, enableAlertsTF7, showPivotATF7, showPivotsTF7),
-     newSmtEngine(8, enableTF8, timeframeTF8, leftBarsTF8, rightBarsTF8, phColorTF8, plColorTF8, enableLtfTF8, ltfTimeframeTF8, enableAlertsTF8, showPivotATF8, showPivotsTF8),
-     newSmtEngine(9, enableTF9, timeframeTF9, leftBarsTF9, rightBarsTF9, phColorTF9, plColorTF9, enableLtfTF9, ltfTimeframeTF9, enableAlertsTF9, showPivotATF9, showPivotsTF9),
-     newSmtEngine(10, enableTF10, timeframeTF10, leftBarsTF10, rightBarsTF10, phColorTF10, plColorTF10, enableLtfTF10, ltfTimeframeTF10, enableAlertsTF10, showPivotATF10, showPivotsTF10),
-     newSmtEngine(11, enableTF11, timeframeTF11, leftBarsTF11, rightBarsTF11, phColorTF11, plColorTF11, enableLtfTF11, ltfTimeframeTF11, enableAlertsTF11, showPivotATF11, showPivotsTF11),
-     newSmtEngine(12, enableTF12, timeframeTF12, leftBarsTF12, rightBarsTF12, phColorTF12, plColorTF12, enableLtfTF12, ltfTimeframeTF12, enableAlertsTF12, showPivotATF12, showPivotsTF12)
- )
+var smtTimeframes = array.from(newSmtTimeframe(1, enableTF1, 'W', bullColorTF1, bearColorTF1), newSmtTimeframe(2, enableTF2, 'D', bullColorTF2, bearColorTF2), newSmtTimeframe(3, enableTF3, '240', bullColorTF3, bearColorTF3), newSmtTimeframe(4, enableTF4, '60', bullColorTF4, bearColorTF4), newSmtTimeframe(5, enableTF5, '90', bullColorTF5, bearColorTF5), newSmtTimeframe(6, enableTF6, '30', bullColorTF6, bearColorTF6), newSmtTimeframe(7, enableTF7, '15', bullColorTF7, bearColorTF7), newSmtTimeframe(8, enableTF8, '10', bullColorTF8, bearColorTF8), newSmtTimeframe(9, enableTF9, '5', bullColorTF9, bearColorTF9), newSmtTimeframe(10, enableTF10, '3', bullColorTF10, bearColorTF10), newSmtTimeframe(11, enableTF11, '1', bullColorTF11, bearColorTF11), newSmtTimeframe(12, enableTF12, '240', bullColorTF12, bearColorTF12))
 
-// Main loop to process each enabled SMT engine.
-for engine in smtEngines
-    if engine.enabled and engine.htfTimeframe != ''
-        is_new_htf_bar = collectHistory(engine)
-        processSmtLogic(engine, is_new_htf_bar)
+// Main processing loop
+for engine in smtTimeframes
+    if engine.enabled
+        // Fetch HTF data for both assets. This is the core of the accurate data pipeline.
+        [htf_main_open, htf_main_high, htf_main_low, htf_main_close] = request.security(syminfo.tickerid, engine.timeframe, [open, high, low, close], lookahead=barmerge.lookahead_off)
+        [htf_comp_open, htf_comp_high, htf_comp_low, htf_comp_close] = request.security(masterComparisonAsset, engine.timeframe, [open, high, low, close], lookahead=barmerge.lookahead_off)
+
+        // Check for a new bar on the engine's timeframe
+        is_new_htf_bar = ta.change(time(engine.timeframe)) != 0
+
+        // --- Momentum SMT (1-candle divergence) ---
+        if (htf_main_low - htf_main_low[1]) * (htf_comp_low - htf_comp_low[1]) < 0
+            drawSmt(engine, bar_index[1], htf_main_low[1], bar_index, htf_main_low, "Momentum", true)
+        if (htf_main_high - htf_main_high[1]) * (htf_comp_high - htf_comp_high[1]) < 0
+            drawSmt(engine, bar_index[1], htf_main_high[1], bar_index, htf_main_high, "Momentum", false)
+
+        if is_new_htf_bar
+            // --- Hierarchical Swing Detection on HTF Data ---
+
+            // Short-Term Swings
+            if queryPatterns(htf_main_low, htf_main_low[1], htf_main_low[2], false)
+                engine.stLow.updatePattern(htf_main_low[1], htf_comp_low[1], time[1])
+                if showPivotsDebug
+                    array.push(engine.debugLabels, label.new(engine.stLow.lastIndex, engine.stLow.lastPrice, 'S', yloc=yloc.belowbar, color=color(na), textcolor=engine.bearColor, style=label.style_label_up, size=size.tiny))
+                // Momentum SMT Check (Short-Term)
+                if not na(engine.stLow.prevPrice) and (engine.stLow.lastPrice - engine.stLow.prevPrice) * (engine.stLow.lastCompPrice - engine.stLow.prevCompPrice) < 0
+                    drawSmt(engine, engine.stLow.prevIndex, engine.stLow.prevPrice, engine.stLow.lastIndex, engine.stLow.lastPrice, "Momentum", true)
+
+            if queryPatterns(htf_main_high, htf_main_high[1], htf_main_high[2], true)
+                engine.stHigh.updatePattern(htf_main_high[1], htf_comp_high[1], time[1])
+                if showPivotsDebug
+                    array.push(engine.debugLabels, label.new(engine.stHigh.lastIndex, engine.stHigh.lastPrice, 'S', yloc=yloc.abovebar, color=color(na), textcolor=engine.bullColor, style=label.style_label_down, size=size.tiny))
+                // Momentum SMT Check (Short-Term)
+                if not na(engine.stHigh.prevPrice) and (engine.stHigh.lastPrice - engine.stHigh.prevPrice) * (engine.stHigh.lastCompPrice - engine.stHigh.prevCompPrice) < 0
+                    drawSmt(engine, engine.stHigh.prevIndex, engine.stHigh.prevPrice, engine.stHigh.lastIndex, engine.stHigh.lastPrice, "Momentum", false)
+
+            // Intermediate-Term Swings & SMT Detection
+            cITL = engine.stLow.queryPatterns(false)
+            if cITL and cITL != cITL[1]
+                engine.itLow.updatePattern(engine.stLow.midPrice, engine.stLow.midCompPrice, engine.stLow.midIndex)
+                if showPivotsDebug
+                    array.push(engine.debugLabels, label.new(engine.itLow.lastIndex, engine.itLow.lastPrice, 'I', yloc=yloc.belowbar, color=color(na), textcolor=engine.bearColor, style=label.style_label_up, size=size.small))
+
+                // Regular SMT Check
+                if not na(engine.itLow.prevPrice) and (engine.itLow.lastPrice - engine.itLow.prevPrice) * (engine.itLow.lastCompPrice - engine.itLow.prevCompPrice) < 0
+                    drawSmt(engine, engine.itLow.prevIndex, engine.itLow.prevPrice, engine.itLow.lastIndex, engine.itLow.lastPrice, "Regular", true)
+
+
+            cITH = engine.stHigh.queryPatterns(true)
+            if cITH and cITH != cITH[1]
+                engine.itHigh.updatePattern(engine.stHigh.midPrice, engine.stHigh.midCompPrice, engine.stHigh.midIndex)
+                if showPivotsDebug
+                    array.push(engine.debugLabels, label.new(engine.itHigh.lastIndex, engine.itHigh.lastPrice, 'I', yloc=yloc.abovebar, color=color(na), textcolor=engine.bullColor, style=label.style_label_down, size=size.small))
+
+                // Regular SMT Check
+                if not na(engine.itHigh.prevPrice) and (engine.itHigh.lastPrice - engine.itHigh.prevPrice) * (engine.itHigh.lastCompPrice - engine.itHigh.prevCompPrice) < 0
+                    drawSmt(engine, engine.itHigh.prevIndex, engine.itHigh.prevPrice, engine.itHigh.lastIndex, engine.itHigh.lastPrice, "Regular", false)
+
+
+            // Long-Term Swings & SMT Detection
+            cLTL = engine.itLow.queryPatterns(false)
+            if cLTL and cLTL != cLTL[1]
+                engine.ltLow.updatePattern(engine.itLow.midPrice, engine.itLow.midCompPrice, engine.itLow.midIndex)
+                if showPivotsDebug
+                    array.push(engine.debugLabels, label.new(engine.ltLow.lastIndex, engine.ltLow.lastPrice, 'L', yloc=yloc.belowbar, color=color(na), textcolor=engine.bearColor, style=label.style_label_up, size=size.normal))
+
+                // Regular SMT Check
+                if not na(engine.ltLow.prevPrice) and (engine.ltLow.lastPrice - engine.ltLow.prevPrice) * (engine.ltLow.lastCompPrice - engine.ltLow.prevCompPrice) < 0
+                    drawSmt(engine, engine.ltLow.prevIndex, engine.ltLow.prevPrice, engine.ltLow.lastIndex, engine.ltLow.lastPrice, "Regular", true)
+
+            cLTH = engine.itHigh.queryPatterns(true)
+            if cLTH and cLTH != cLTH[1]
+                engine.ltHigh.updatePattern(engine.itHigh.midPrice, engine.itHigh.midCompPrice, engine.itHigh.midIndex)
+                if showPivotsDebug
+                    array.push(engine.debugLabels, label.new(engine.ltHigh.lastIndex, engine.ltHigh.lastPrice, 'L', yloc=yloc.abovebar, color=color(na), textcolor=engine.bullColor, style=label.style_label_down, size=size.normal))
+
+                // Regular SMT Check
+                if not na(engine.ltHigh.prevPrice) and (engine.ltHigh.lastPrice - engine.ltHigh.prevPrice) * (engine.ltHigh.lastCompPrice - engine.ltHigh.prevCompPrice) < 0
+                    drawSmt(engine, engine.ltHigh.prevIndex, engine.ltHigh.prevPrice, engine.ltHigh.lastIndex, engine.ltHigh.lastPrice, "Regular", false)
+
+            // --- Garbage Collection for Debug Labels ---
+            int MAX_DEBUG_LABELS_PER_ENGINE = 100
+            while array.size(engine.debugLabels) > MAX_DEBUG_LABELS_PER_ENGINE
+                label.delete(array.shift(engine.debugLabels))
     else
-        cleanupSmtDrawings(engine)
+        cleanupEngineDrawings(engine)
