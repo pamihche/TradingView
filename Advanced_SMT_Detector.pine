@@ -29,28 +29,6 @@ type ICTMS
     int     midIndex
     int     prevIndex
 
-// Holds all the configuration and state for a single SMT timeframe engine.
-type SmtTimeframe
-    // -- Configuration --
-    int id
-    bool enabled
-    string timeframe
-    color bullColor
-    color bearColor
-
-    // -- Swing State --
-    ICTMS stHigh
-    ICTMS stLow
-    ICTMS itHigh
-    ICTMS itLow
-    ICTMS ltHigh
-    ICTMS ltLow
-
-    // -- Drawing Management --
-    array<line> smtLines
-    array<label> smtLabels
-    array<label> debugLabels
-
 // =============================================================================
 // INPUTS
 // =============================================================================
@@ -146,11 +124,6 @@ bearColorTF12 = input.color(color.new(#E91E63, 40), "Bearish", group = GRP_TF12,
 // =============================================================================
 
 // @function_description Detects a 3-point swing pattern.
-// @param price (float) The current price point.
-// @param prevPrice (float) The previous price point.
-// @param prevPrice2 (float) The price point before the previous one.
-// @param isSwingHigh (bool) If true, checks for a swing high; otherwise, checks for a swing low.
-// @returns (bool) True if a swing is detected, false otherwise.
 queryPatterns(price, prevPrice, prevPrice2, isSwingHigh) =>
     if isSwingHigh
         prevPrice2 < prevPrice and prevPrice >= price
@@ -158,9 +131,6 @@ queryPatterns(price, prevPrice, prevPrice2, isSwingHigh) =>
         prevPrice2 > prevPrice and prevPrice <= price
 
 // @function_description Method to query a swing pattern from an ICTMS object.
-// @param _this (ICTMS) The ICTMS object instance.
-// @param isSwingHigh (bool) If true, checks for a swing high.
-// @returns (bool) True if a swing is detected, false otherwise.
 method queryPatterns(ICTMS _this, isSwingHigh) =>
     if isSwingHigh
         _this.prevPrice < _this.midPrice and _this.midPrice >= _this.lastPrice
@@ -168,10 +138,6 @@ method queryPatterns(ICTMS _this, isSwingHigh) =>
         _this.prevPrice > _this.midPrice and _this.midPrice <= _this.lastPrice
 
 // @function_description Method to update the state of an ICTMS object with a new swing point.
-// @param _this (ICTMS) The ICTMS object instance.
-// @param price (float) The price of the new swing point on the main asset.
-// @param compPrice (float) The price of the new swing point on the comparison asset.
-// @param index (int) The bar index of the new swing point.
 method updatePattern(ICTMS _this, price, compPrice, index) =>
     _this.prevPrice := _this.midPrice
     _this.midPrice := _this.lastPrice
@@ -183,13 +149,9 @@ method updatePattern(ICTMS _this, price, compPrice, index) =>
     _this.midIndex := _this.lastIndex
     _this.lastIndex := index
 
-
 // =============================================================================
 // CONSTANTS & GENERAL FUNCTIONS
 // =============================================================================
-int MAX_DRAWING_OBJECTS = 500
-int MAX_HISTORY_SIZE = 500
-
 isWithinAnySession() =>
     anyFilterEnabled = enableTimeFilter1 or enableTimeFilter2 or enableTimeFilter3
     if not anyFilterEnabled
@@ -213,172 +175,167 @@ formatTimeframe(string tf) =>
             result := str.tostring(int(tf_minutes)) + 'M'
     result
 
-cleanupEngineDrawings(SmtTimeframe engine) =>
-    for l in engine.smtLines
+cleanupEngineDrawings(array<line> lines, array<label> labels, array<label> debugLabels) =>
+    for l in lines
         line.delete(l)
-    array.clear(engine.smtLines)
-    for l in engine.smtLabels
+    array.clear(lines)
+    for l in labels
         label.delete(l)
-    array.clear(engine.smtLabels)
+    array.clear(labels)
+    for l in debugLabels
+        label.delete(l)
+    array.clear(debugLabels)
 
 // =============================================================================
 // DRAWING FUNCTIONS
 // =============================================================================
 
-// @function_description Draws the SMT lines and labels on the chart.
-// @param engine (SmtTimeframe) The engine instance containing state and settings.
-// @param p1_index (int) The bar index of the first pivot.
-// @param p1_price (float) The price of the first pivot.
-// @param p2_index (int) The bar index of the second pivot.
-// @param p2_price (float) The price of the second pivot.
-// @param smtType (string) The type of SMT ("Regular" or "Momentum").
-// @param isBullish (bool) True for a bullish SMT, false for a bearish one.
-drawSmt(SmtTimeframe engine, int p1_index, float p1_price, int p2_index, float p2_price, string smtType, bool isBullish) =>
+drawSmt(array<line> lines, array<label> labels, string timeframe, color bullColor, color bearColor, int p1_index, float p1_price, int p2_index, float p2_price, string smtType, bool isBullish) =>
     int MAX_SMT_DRAWINGS_PER_ENGINE = 50
     lineStyle = smtType == "Regular" ? line.style_solid : line.style_dashed
     lineWidth = smtType == "Regular" ? 2 : 1
-    lineColor = isBullish ? engine.bullColor : engine.bearColor
-
-    // Create the SMT line
+    lineColor = isBullish ? bullColor : bearColor
+    
     newLine = line.new(p1_index, p1_price, p2_index, p2_price, xloc=xloc.bar_index, color=lineColor, style=lineStyle, width=lineWidth)
-    array.push(engine.smtLines, newLine)
+    array.push(lines, newLine)
 
-    // Create the SMT label
-    labelText = str.format("{0} {1} SMT", formatTimeframe(engine.timeframe), smtType)
+    labelText = str.format("{0} {1} SMT", formatTimeframe(timeframe), smtType)
     labelStyle = isBullish ? label.style_label_up : label.style_label_down
     newLabel = label.new(p2_index, p2_price, text=labelText, xloc=xloc.bar_index, yloc=yloc.price, color=lineColor, textcolor=color.white, style=labelStyle, size=size.small)
-    array.push(engine.smtLabels, newLabel)
+    array.push(labels, newLabel)
 
-    // Garbage Collection
-    if array.size(engine.smtLines) > MAX_SMT_DRAWINGS_PER_ENGINE
-        line.delete(array.shift(engine.smtLines))
-
-    if array.size(engine.smtLabels) > MAX_SMT_DRAWINGS_PER_ENGINE
-        label.delete(array.shift(engine.smtLabels))
-
-// =============================================================================
-// CORE ENGINE FUNCTIONS
-// =============================================================================
-
-// This section will be rebuilt with the new data pipeline and SMT logic.
+    if array.size(lines) > MAX_SMT_DRAWINGS_PER_ENGINE
+        line.delete(array.shift(lines))
+    
+    if array.size(labels) > MAX_SMT_DRAWINGS_PER_ENGINE
+        label.delete(array.shift(labels))
 
 // =============================================================================
-// ENGINE CONSTRUCTOR & INITIALIZATION
+// GLOBAL STATE DECLARATION
 // =============================================================================
 
-// Constructor function to initialize a new SmtTimeframe object.
-newSmtTimeframe(int id, bool enabled, string timeframe, color bullColor, color bearColor) =>
-    SmtTimeframe.new(
-         id = id,
-         enabled = enabled,
-         timeframe = timeframe,
-         bullColor = bullColor,
-         bearColor = bearColor,
-         
-         // Initialize swing state
-         stHigh = ICTMS.new(),
-         stLow = ICTMS.new(),
-         itHigh = ICTMS.new(),
-         itLow = ICTMS.new(),
-         ltHigh = ICTMS.new(),
-         ltLow = ICTMS.new(),
-         
-         // Initialize drawing management arrays
-         smtLines = array.new_line(),
-         smtLabels = array.new_label(),
-         debugLabels = array.new_label()
-     )
+var stHigh1 = ICTMS.new(), var stLow1 = ICTMS.new(), var itHigh1 = ICTMS.new(), var itLow1 = ICTMS.new(), var ltHigh1 = ICTMS.new(), var ltLow1 = ICTMS.new()
+var smtLines1 = array.new_line(), var smtLabels1 = array.new_label(), var debugLabels1 = array.new_label()
+var stHigh2 = ICTMS.new(), var stLow2 = ICTMS.new(), var itHigh2 = ICTMS.new(), var itLow2 = ICTMS.new(), var ltHigh2 = ICTMS.new(), var ltLow2 = ICTMS.new()
+var smtLines2 = array.new_line(), var smtLabels2 = array.new_label(), var debugLabels2 = array.new_label()
+var stHigh3 = ICTMS.new(), var stLow3 = ICTMS.new(), var itHigh3 = ICTMS.new(), var itLow3 = ICTMS.new(), var ltHigh3 = ICTMS.new(), var ltLow3 = ICTMS.new()
+var smtLines3 = array.new_line(), var smtLabels3 = array.new_label(), var debugLabels3 = array.new_label()
+var stHigh4 = ICTMS.new(), var stLow4 = ICTMS.new(), var itHigh4 = ICTMS.new(), var itLow4 = ICTMS.new(), var ltHigh4 = ICTMS.new(), var ltLow4 = ICTMS.new()
+var smtLines4 = array.new_line(), var smtLabels4 = array.new_label(), var debugLabels4 = array.new_label()
+var stHigh5 = ICTMS.new(), var stLow5 = ICTMS.new(), var itHigh5 = ICTMS.new(), var itLow5 = ICTMS.new(), var ltHigh5 = ICTMS.new(), var ltLow5 = ICTMS.new()
+var smtLines5 = array.new_line(), var smtLabels5 = array.new_label(), var debugLabels5 = array.new_label()
+var stHigh6 = ICTMS.new(), var stLow6 = ICTMS.new(), var itHigh6 = ICTMS.new(), var itLow6 = ICTMS.new(), var ltHigh6 = ICTMS.new(), var ltLow6 = ICTMS.new()
+var smtLines6 = array.new_line(), var smtLabels6 = array.new_label(), var debugLabels6 = array.new_label()
+var stHigh7 = ICTMS.new(), var stLow7 = ICTMS.new(), var itHigh7 = ICTMS.new(), var itLow7 = ICTMS.new(), var ltHigh7 = ICTMS.new(), var ltLow7 = ICTMS.new()
+var smtLines7 = array.new_line(), var smtLabels7 = array.new_label(), var debugLabels7 = array.new_label()
+var stHigh8 = ICTMS.new(), var stLow8 = ICTMS.new(), var itHigh8 = ICTMS.new(), var itLow8 = ICTMS.new(), var ltHigh8 = ICTMS.new(), var ltLow8 = ICTMS.new()
+var smtLines8 = array.new_line(), var smtLabels8 = array.new_label(), var debugLabels8 = array.new_label()
+var stHigh9 = ICTMS.new(), var stLow9 = ICTMS.new(), var itHigh9 = ICTMS.new(), var itLow9 = ICTMS.new(), var ltHigh9 = ICTMS.new(), var ltLow9 = ICTMS.new()
+var smtLines9 = array.new_line(), var smtLabels9 = array.new_label(), var debugLabels9 = array.new_label()
+var stHigh10 = ICTMS.new(), var stLow10 = ICTMS.new(), var itHigh10 = ICTMS.new(), var itLow10 = ICTMS.new(), var ltHigh10 = ICTMS.new(), var ltLow10 = ICTMS.new()
+var smtLines10 = array.new_line(), var smtLabels10 = array.new_label(), var debugLabels10 = array.new_label()
+var stHigh11 = ICTMS.new(), var stLow11 = ICTMS.new(), var itHigh11 = ICTMS.new(), var itLow11 = ICTMS.new(), var ltHigh11 = ICTMS.new(), var ltLow11 = ICTMS.new()
+var smtLines11 = array.new_line(), var smtLabels11 = array.new_label(), var debugLabels11 = array.new_label()
+var stHigh12 = ICTMS.new(), var stLow12 = ICTMS.new(), var itHigh12 = ICTMS.new(), var itLow12 = ICTMS.new(), var ltHigh12 = ICTMS.new(), var ltLow12 = ICTMS.new()
+var smtLines12 = array.new_line(), var smtLabels12 = array.new_label(), var debugLabels12 = array.new_label()
 
 // =============================================================================
 // MAIN LOGIC
 // =============================================================================
 
-// Initialize all 12 SMT engine instances in an array.
-var smtTimeframes = array.from(newSmtTimeframe(1, enableTF1, 'W', bullColorTF1, bearColorTF1), newSmtTimeframe(2, enableTF2, 'D', bullColorTF2, bearColorTF2), newSmtTimeframe(3, enableTF3, '240', bullColorTF3, bearColorTF3), newSmtTimeframe(4, enableTF4, '60', bullColorTF4, bearColorTF4), newSmtTimeframe(5, enableTF5, '90', bullColorTF5, bearColorTF5), newSmtTimeframe(6, enableTF6, '30', bullColorTF6, bearColorTF6), newSmtTimeframe(7, enableTF7, '15', bullColorTF7, bearColorTF7), newSmtTimeframe(8, enableTF8, '10', bullColorTF8, bearColorTF8), newSmtTimeframe(9, enableTF9, '5', bullColorTF9, bearColorTF9), newSmtTimeframe(10, enableTF10, '3', bullColorTF10, bearColorTF10), newSmtTimeframe(11, enableTF11, '1', bullColorTF11, bearColorTF11), newSmtTimeframe(12, enableTF12, '240', bullColorTF12, bearColorTF12))
 
-// Main processing loop
-for engine in smtTimeframes
-    if engine.enabled
-        // Fetch HTF data for both assets. This is the core of the accurate data pipeline.
-        [htf_main_open, htf_main_high, htf_main_low, htf_main_close] = request.security(syminfo.tickerid, engine.timeframe, [open, high, low, close], lookahead=barmerge.lookahead_off)
-        [htf_comp_open, htf_comp_high, htf_comp_low, htf_comp_close] = request.security(masterComparisonAsset, engine.timeframe, [open, high, low, close], lookahead=barmerge.lookahead_off)
+// --- Engine Definition Function ---
+processSmtEngine(bool enable, string tf, color bullColor, color bearColor, 
+ ICTMS stHigh, ICTMS stLow, ICTMS itHigh, ICTMS itLow, ICTMS ltHigh, ICTMS ltLow,
+ array<line> smtLines, array<label> smtLabels, array<label> debugLabels) =>
+    if enable
+        // --- Conditional Data Fetching ---
+        var float htf_main_open = na, var float htf_main_high = na, var float htf_main_low = na, var float htf_main_close = na
+        var float htf_comp_open = na, var float htf_comp_high = na, var float htf_comp_low = na, var float htf_comp_close = na
 
-        // Check for a new bar on the engine's timeframe
-        is_new_htf_bar = ta.change(time(engine.timeframe)) != 0
+        if tf == timeframe.period
+            htf_main_open := open
+            htf_main_high := high
+            htf_main_low := low
+            htf_main_close := close
+            [o, h, l, c] = request.security(masterComparisonAsset, tf, [open, high, low, close], lookahead=barmerge.lookahead_off)
+            htf_comp_open := o, htf_comp_high := h, htf_comp_low := l, htf_comp_close := c
+        else
+            [o, h, l, c] = request.security(syminfo.tickerid, tf, [open, high, low, close], lookahead=barmerge.lookahead_off)
+            htf_main_open := o, htf_main_high := h, htf_main_low := l, htf_main_close := c
+            [o2, h2, l2, c2] = request.security(masterComparisonAsset, tf, [open, high, low, close], lookahead=barmerge.lookahead_off)
+            htf_comp_open := o2, htf_comp_high := h2, htf_comp_low := l2, htf_comp_close := c2
 
-        // --- Momentum SMT (1-candle divergence) ---
+        is_new_htf_bar = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(tf) and nz(ta.change(time(tf))) != 0
+
+        is_st_low_pivot = queryPatterns(htf_main_low, htf_main_low[1], htf_main_low[2], false)
+        is_st_high_pivot = queryPatterns(htf_main_high, htf_main_high[1], htf_main_high[2], true)
+        is_it_low_pivot = stLow.queryPatterns(false)
+        is_it_high_pivot = stHigh.queryPatterns(true)
+        is_lt_low_pivot = itLow.queryPatterns(false)
+        is_lt_high_pivot = itHigh.queryPatterns(true)
+
         if (htf_main_low - htf_main_low[1]) * (htf_comp_low - htf_comp_low[1]) < 0
-            drawSmt(engine, bar_index[1], htf_main_low[1], bar_index, htf_main_low, "Momentum", true)
+            drawSmt(smtLines, smtLabels, tf, bullColor, bearColor, bar_index[1], htf_main_low[1], bar_index, htf_main_low, "Momentum", true)
         if (htf_main_high - htf_main_high[1]) * (htf_comp_high - htf_comp_high[1]) < 0
-            drawSmt(engine, bar_index[1], htf_main_high[1], bar_index, htf_main_high, "Momentum", false)
+            drawSmt(smtLines, smtLabels, tf, bullColor, bearColor, bar_index[1], htf_main_high[1], bar_index, htf_main_high, "Momentum", false)
 
         if is_new_htf_bar
-            // --- Hierarchical Swing Detection on HTF Data ---
-
-            // Short-Term Swings
-            if queryPatterns(htf_main_low, htf_main_low[1], htf_main_low[2], false)
-                engine.stLow.updatePattern(htf_main_low[1], htf_comp_low[1], time[1])
-                if showPivotsDebug
-                    array.push(engine.debugLabels, label.new(engine.stLow.lastIndex, engine.stLow.lastPrice, 'S', yloc=yloc.belowbar, color=color(na), textcolor=engine.bearColor, style=label.style_label_up, size=size.tiny))
-                // Momentum SMT Check (Short-Term)
-                if not na(engine.stLow.prevPrice) and (engine.stLow.lastPrice - engine.stLow.prevPrice) * (engine.stLow.lastCompPrice - engine.stLow.prevCompPrice) < 0
-                    drawSmt(engine, engine.stLow.prevIndex, engine.stLow.prevPrice, engine.stLow.lastIndex, engine.stLow.lastPrice, "Momentum", true)
-
-            if queryPatterns(htf_main_high, htf_main_high[1], htf_main_high[2], true)
-                engine.stHigh.updatePattern(htf_main_high[1], htf_comp_high[1], time[1])
-                if showPivotsDebug
-                    array.push(engine.debugLabels, label.new(engine.stHigh.lastIndex, engine.stHigh.lastPrice, 'S', yloc=yloc.abovebar, color=color(na), textcolor=engine.bullColor, style=label.style_label_down, size=size.tiny))
-                // Momentum SMT Check (Short-Term)
-                if not na(engine.stHigh.prevPrice) and (engine.stHigh.lastPrice - engine.stHigh.prevPrice) * (engine.stHigh.lastCompPrice - engine.stHigh.prevCompPrice) < 0
-                    drawSmt(engine, engine.stHigh.prevIndex, engine.stHigh.prevPrice, engine.stHigh.lastIndex, engine.stHigh.lastPrice, "Momentum", false)
-
-            // Intermediate-Term Swings & SMT Detection
-            cITL = engine.stLow.queryPatterns(false)
-            if cITL and cITL != cITL[1]
-                engine.itLow.updatePattern(engine.stLow.midPrice, engine.stLow.midCompPrice, engine.stLow.midIndex)
-                if showPivotsDebug
-                    array.push(engine.debugLabels, label.new(engine.itLow.lastIndex, engine.itLow.lastPrice, 'I', yloc=yloc.belowbar, color=color(na), textcolor=engine.bearColor, style=label.style_label_up, size=size.small))
-
-                // Regular SMT Check
-                if not na(engine.itLow.prevPrice) and (engine.itLow.lastPrice - engine.itLow.prevPrice) * (engine.itLow.lastCompPrice - engine.itLow.prevCompPrice) < 0
-                    drawSmt(engine, engine.itLow.prevIndex, engine.itLow.prevPrice, engine.itLow.lastIndex, engine.itLow.lastPrice, "Regular", true)
-
-
-            cITH = engine.stHigh.queryPatterns(true)
-            if cITH and cITH != cITH[1]
-                engine.itHigh.updatePattern(engine.stHigh.midPrice, engine.stHigh.midCompPrice, engine.stHigh.midIndex)
-                if showPivotsDebug
-                    array.push(engine.debugLabels, label.new(engine.itHigh.lastIndex, engine.itHigh.lastPrice, 'I', yloc=yloc.abovebar, color=color(na), textcolor=engine.bullColor, style=label.style_label_down, size=size.small))
-
-                // Regular SMT Check
-                if not na(engine.itHigh.prevPrice) and (engine.itHigh.lastPrice - engine.itHigh.prevPrice) * (engine.itHigh.lastCompPrice - engine.itHigh.prevCompPrice) < 0
-                    drawSmt(engine, engine.itHigh.prevIndex, engine.itHigh.prevPrice, engine.itHigh.lastIndex, engine.itHigh.lastPrice, "Regular", false)
-
-
-            // Long-Term Swings & SMT Detection
-            cLTL = engine.itLow.queryPatterns(false)
-            if cLTL and cLTL != cLTL[1]
-                engine.ltLow.updatePattern(engine.itLow.midPrice, engine.itLow.midCompPrice, engine.itLow.midIndex)
-                if showPivotsDebug
-                    array.push(engine.debugLabels, label.new(engine.ltLow.lastIndex, engine.ltLow.lastPrice, 'L', yloc=yloc.belowbar, color=color(na), textcolor=engine.bearColor, style=label.style_label_up, size=size.normal))
-
-                // Regular SMT Check
-                if not na(engine.ltLow.prevPrice) and (engine.ltLow.lastPrice - engine.ltLow.prevPrice) * (engine.ltLow.lastCompPrice - engine.ltLow.prevCompPrice) < 0
-                    drawSmt(engine, engine.ltLow.prevIndex, engine.ltLow.prevPrice, engine.ltLow.lastIndex, engine.ltLow.lastPrice, "Regular", true)
-
-            cLTH = engine.itHigh.queryPatterns(true)
-            if cLTH and cLTH != cLTH[1]
-                engine.ltHigh.updatePattern(engine.itHigh.midPrice, engine.itHigh.midCompPrice, engine.itHigh.midIndex)
-                if showPivotsDebug
-                    array.push(engine.debugLabels, label.new(engine.ltHigh.lastIndex, engine.ltHigh.lastPrice, 'L', yloc=yloc.abovebar, color=color(na), textcolor=engine.bullColor, style=label.style_label_down, size=size.normal))
-
-                // Regular SMT Check
-                if not na(engine.ltHigh.prevPrice) and (engine.ltHigh.lastPrice - engine.ltHigh.prevPrice) * (engine.ltHigh.lastCompPrice - engine.ltHigh.prevCompPrice) < 0
-                    drawSmt(engine, engine.ltHigh.prevIndex, engine.ltHigh.prevPrice, engine.ltHigh.lastIndex, engine.ltHigh.lastPrice, "Regular", false)
-
-            // --- Garbage Collection for Debug Labels ---
+            label.new(bar_index, high, 'New HTF Bar (' + tf + ')', yloc=yloc.abovebar, style=label.style_none, textcolor=color.white, size=size.small)
+            if is_st_low_pivot
+                label.new(bar_index, low, 'ST Low Pivot Found', yloc=yloc.belowbar, style=label.style_none, textcolor=color.yellow, size=size.small)
+                stLow.updatePattern(htf_main_low[1], htf_comp_low[1], time[1])
+            if is_st_high_pivot
+                stHigh.updatePattern(htf_main_high[1], htf_comp_high[1], time[1])
+            if is_it_low_pivot and not is_it_low_pivot[1]
+                itLow.updatePattern(stLow.midPrice, stLow.midCompPrice, stLow.midIndex)
+            if is_it_high_pivot and not is_it_high_pivot[1]
+                itHigh.updatePattern(stHigh.midPrice, stHigh.midCompPrice, stHigh.midIndex)
+            if is_lt_low_pivot and not is_lt_low_pivot[1]
+                ltLow.updatePattern(itLow.midPrice, itLow.midCompPrice, itLow.midIndex)
+            if is_lt_high_pivot and not is_lt_high_pivot[1]
+                ltHigh.updatePattern(itHigh.midPrice, itHigh.midCompPrice, itHigh.midIndex)
+            if is_st_low_pivot and not na(stLow.prevPrice) and (stLow.lastPrice - stLow.prevPrice) * (stLow.lastCompPrice - stLow.prevCompPrice) < 0
+                drawSmt(smtLines, smtLabels, tf, bullColor, bearColor, stLow.prevIndex, stLow.prevPrice, stLow.lastIndex, stLow.lastPrice, "Momentum", true)
+            if is_st_high_pivot and not na(stHigh.prevPrice) and (stHigh.lastPrice - stHigh.prevPrice) * (stHigh.lastCompPrice - stHigh.prevCompPrice) < 0
+                drawSmt(smtLines, smtLabels, tf, bullColor, bearColor, stHigh.prevIndex, stHigh.prevPrice, stHigh.lastIndex, stHigh.lastPrice, "Momentum", false)
+            if (is_it_low_pivot and not is_it_low_pivot[1]) and not na(itLow.prevPrice) and (itLow.lastPrice - itLow.prevPrice) * (itLow.lastCompPrice - itLow.prevCompPrice) < 0
+                drawSmt(smtLines, smtLabels, tf, bullColor, bearColor, itLow.prevIndex, itLow.prevPrice, itLow.lastIndex, itLow.lastPrice, "Regular", true)
+            if (is_it_high_pivot and not is_it_high_pivot[1]) and not na(itHigh.prevPrice) and (itHigh.lastPrice - itHigh.prevPrice) * (itHigh.lastCompPrice - itHigh.prevCompPrice) < 0
+                drawSmt(smtLines, smtLabels, tf, bullColor, bearColor, itHigh.prevIndex, itHigh.prevPrice, itHigh.lastIndex, itHigh.lastPrice, "Regular", false)
+            if (is_lt_low_pivot and not is_lt_low_pivot[1]) and not na(ltLow.prevPrice) and (ltLow.lastPrice - ltLow.prevPrice) * (ltLow.lastCompPrice - ltLow.prevCompPrice) < 0
+                drawSmt(smtLines, smtLabels, tf, bullColor, bearColor, ltLow.prevIndex, ltLow.prevPrice, ltLow.lastIndex, ltLow.lastPrice, "Regular", true)
+            if (is_lt_high_pivot and not is_lt_high_pivot[1]) and not na(ltHigh.prevPrice) and (ltHigh.lastPrice - ltHigh.prevPrice) * (ltHigh.lastCompPrice - ltHigh.prevCompPrice) < 0
+                drawSmt(smtLines, smtLabels, tf, bullColor, bearColor, ltHigh.prevIndex, ltHigh.prevPrice, ltHigh.lastIndex, ltHigh.lastPrice, "Regular", false)
+            if showPivotsDebug
+                if is_st_low_pivot
+                    array.push(debugLabels, label.new(stLow.lastIndex, stLow.lastPrice, 'S', yloc=yloc.belowbar, color=color(na), textcolor=bearColor, style=label.style_label_up, size=size.tiny))
+                if is_st_high_pivot
+                    array.push(debugLabels, label.new(stHigh.lastIndex, stHigh.lastPrice, 'S', yloc=yloc.abovebar, color=color(na), textcolor=bullColor, style=label.style_label_down, size=size.tiny))
+                if is_it_low_pivot and not is_it_low_pivot[1]
+                    array.push(debugLabels, label.new(itLow.lastIndex, itLow.lastPrice, 'I', yloc=yloc.belowbar, color=color(na), textcolor=bearColor, style=label.style_label_up, size=size.small))
+                if is_it_high_pivot and not is_it_high_pivot[1]
+                    array.push(debugLabels, label.new(itHigh.lastIndex, itHigh.lastPrice, 'I', yloc=yloc.abovebar, color=color(na), textcolor=bullColor, style=label.style_label_down, size=size.small))
+                if is_lt_low_pivot and not is_lt_low_pivot[1]
+                    array.push(debugLabels, label.new(ltLow.lastIndex, ltLow.lastPrice, 'L', yloc=yloc.belowbar, color=color(na), textcolor=bearColor, style=label.style_label_up, size=size.normal))
+                if is_lt_high_pivot and not is_lt_high_pivot[1]
+                    array.push(debugLabels, label.new(ltHigh.lastIndex, ltHigh.lastPrice, 'L', yloc=yloc.abovebar, color=color(na), textcolor=bullColor, style=label.style_label_down, size=size.normal))
             int MAX_DEBUG_LABELS_PER_ENGINE = 100
-            while array.size(engine.debugLabels) > MAX_DEBUG_LABELS_PER_ENGINE
-                label.delete(array.shift(engine.debugLabels))
+            while array.size(debugLabels) > MAX_DEBUG_LABELS_PER_ENGINE
+                label.delete(array.shift(debugLabels))
     else
-        cleanupEngineDrawings(engine)
+        cleanupEngineDrawings(smtLines, smtLabels, debugLabels)
+
+// --- Engine Calls ---
+processSmtEngine(enableTF1, 'W', bullColorTF1, bearColorTF1, stHigh1, stLow1, itHigh1, itLow1, ltHigh1, ltLow1, smtLines1, smtLabels1, debugLabels1)
+processSmtEngine(enableTF2, 'D', bullColorTF2, bearColorTF2, stHigh2, stLow2, itHigh2, itLow2, ltHigh2, ltLow2, smtLines2, smtLabels2, debugLabels2)
+processSmtEngine(enableTF3, '240', bullColorTF3, bearColorTF3, stHigh3, stLow3, itHigh3, itLow3, ltHigh3, ltLow3, smtLines3, smtLabels3, debugLabels3)
+processSmtEngine(enableTF4, '60', bullColorTF4, bearColorTF4, stHigh4, stLow4, itHigh4, itLow4, ltHigh4, ltLow4, smtLines4, smtLabels4, debugLabels4)
+processSmtEngine(enableTF5, '90', bullColorTF5, bearColorTF5, stHigh5, stLow5, itHigh5, itLow5, ltHigh5, ltLow5, smtLines5, smtLabels5, debugLabels5)
+processSmtEngine(enableTF6, '30', bullColorTF6, bearColorTF6, stHigh6, stLow6, itHigh6, itLow6, ltHigh6, ltLow6, smtLines6, smtLabels6, debugLabels6)
+processSmtEngine(enableTF7, '15', bullColorTF7, bearColorTF7, stHigh7, stLow7, itHigh7, itLow7, ltHigh7, ltLow7, smtLines7, smtLabels7, debugLabels7)
+processSmtEngine(enableTF8, '10', bullColorTF8, bearColorTF8, stHigh8, stLow8, itHigh8, itLow8, ltHigh8, ltLow8, smtLines8, smtLabels8, debugLabels8)
+processSmtEngine(enableTF9, '5', bullColorTF9, bearColorTF9, stHigh9, stLow9, itHigh9, itLow9, ltHigh9, ltLow9, smtLines9, smtLabels9, debugLabels9)
+processSmtEngine(enableTF10, '3', bullColorTF10, bearColorTF10, stHigh10, stLow10, itHigh10, itLow10, ltHigh10, ltLow10, smtLines10, smtLabels10, debugLabels10)
+processSmtEngine(enableTF11, '1', bullColorTF11, bearColorTF11, stHigh11, stLow11, itHigh11, itLow11, ltHigh11, ltLow11, smtLines11, smtLabels11, debugLabels11)
+processSmtEngine(enableTF12, '240', bullColorTF12, bearColorTF12, stHigh12, stLow12, itHigh12, itLow12, ltHigh12, ltLow12, smtLines12, smtLabels12, debugLabels12)
