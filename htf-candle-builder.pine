@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("Advanced HTF Candle Builder", overlay=true)
 
 // -- CONSTANTS --
@@ -11,22 +11,14 @@ type Candle
     float low
     float close
 
-// -- STORAGE --
-var map<string, Candle> candlesMapHolder = map.new<string, Candle>()
-
-// -- Initialization --
-if barstate.isfirst
-    for tf_string in ARR_MONITOR_TIME_FRAMES
-        candlesMapHolder.put(tf_string, Candle.new(na, na, na, na))
-
-// -- canRequestNewData function --
+// -- HELPERS --
 canRequestNewData(string checkTimeFrame) =>
     bool canRequest = false
     if barstate.isnew
         int currentSeconds = timeframe.in_seconds(timeframe.period)
         int checkSeconds = timeframe.in_seconds(checkTimeFrame)
 
-        if not na(checkSeconds) and checkSeconds > 86400  // daily or higher
+        if not na(checkSeconds) and checkSeconds > 86400
             and checkSeconds >= currentSeconds
             and timeframe.change(checkTimeFrame)
             canRequest := true
@@ -42,26 +34,44 @@ canRequestNewData(string checkTimeFrame) =>
             canRequest := true
     canRequest
 
-// -- Core candle building logic --
-update_htf_data(string tf) =>
-    bool is_new_htf_bar = ta.change(time(tf))
-    current_candle = candlesMapHolder.get(tf)
+// -- STORAGE --
+var map<string, Candle> candlesMapHolder = map.new<string, Candle>()
+var map<string, Candle> tempCandlesMapHolder = map.new<string, Candle>()
 
-    if is_new_htf_bar
-        new_candle = Candle.new(open, high, low, close)
-        candlesMapHolder.put(tf, new_candle)
-    else
-        if na(current_candle.open)
-            current_candle.open := open
-            current_candle.high := high
-            current_candle.low := low
-            current_candle.close := close
-        else
-            current_candle.high := math.max(current_candle.high, high)
-            current_candle.low := math.min(current_candle.low, low)
-            current_candle.close := close
+// -- MAIN EXECUTION --
+update_htf_data() =>
+    string tf = timeframe.period
 
-// -- Execution --
-for tf_string in ARR_MONITOR_TIME_FRAMES
-    if canRequestNewData(tf_string)
-        update_htf_data(tf_string)
+    // Create confirmed candle from previous bar of current TF
+    confirmedCandle = Candle.new(open[1], high[1], low[1], close[1])
+
+    // Store it as the most recently closed candle for this TF
+    candlesMapHolder.put(tf, confirmedCandle)
+
+    // Initialize temp HTF candles (only once), skipping the current TF
+    if tempCandlesMapHolder.size() == 0
+        for tf_string in ARR_MONITOR_TIME_FRAMES
+            if tf_string != tf
+                tempCandlesMapHolder.put(tf_string, Candle.new(confirmedCandle.open, na, na, na))
+
+    // Update temp HTF candles and confirm if their bar is complete
+    for [tf_string, tempCandle] in tempCandlesMapHolder
+        tempCandle.high := math.max(tempCandle.high, confirmedCandle.high)
+        tempCandle.low  := math.min(tempCandle.low, confirmedCandle.low)
+        tempCandle.close := canRequestNewData(tf_string) ? confirmedCandle.close : na
+
+        if na(tempCandle.close)
+            continue
+
+        // Confirm the candle by copying the confirmedCandle into candlesMapHolder
+        candlesMapHolder.put(tf_string, confirmedCandle.copy())
+
+        // Reset the temp candle for the next HTF bar
+        tempCandle.open := confirmedCandle.open
+        tempCandle.high := na
+        tempCandle.low  := na
+        tempCandle.close := na
+
+// -- CALL MAIN --
+if canRequestNewData(timeframe.period)
+    update_htf_data()
