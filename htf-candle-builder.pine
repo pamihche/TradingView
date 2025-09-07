@@ -36,12 +36,12 @@ canRequestNewData(string checkTimeFrame) =>
 
 // -- STORAGE --
 var map<string, Candle> candlesMapHolder = map.new<string, Candle>()
-var map<string, Candle> tempCandlesMapHolder = map.new<string, Candle>()
 
 // -- MAIN EXECUTION --
 update_htf_data() =>
     string tf = timeframe.period
 
+    var map<string, Candle> tempCandlesMapHolder = map.new<string, Candle>()
     // Create confirmed candle from previous bar of current TF
     confirmedCandle = Candle.new(open[1], high[1], low[1], close[1])
 
