@@ -1,0 +1,117 @@
+//@version=6
+indicator("Multi-Symbol Bar History Tracker", overlay=true)
+
+// === Constants ===
+const string[] ARR_MONITOR_SYMBOLS = array.from(
+                  "NQ1!", 
+                  "ES1!", 
+                  "YM1!"
+   )
+const string[] ARR_MONITOR_TIME_FRAMES = array.from(
+     "12M", "3M", "1M", "1W", "1D",
+     "240", 
+     "90", 
+     "60", 
+     "30", 
+     "15", 
+     "5",
+     "3", 
+     "1"
+ )
+const int MAX_HISTORY = 500
+const string TIME_ZONE_NY = "America/New_York"
+
+// === Types ===
+type Bar
+    float open
+    float high
+    float low
+    float close
+    int time
+    int time_close
+    int bar_index
+
+type CandleBarsCollection
+    array<Bar> bars
+
+// === Global Storage ===
+var map<string, CandleBarsCollection> historyMap = map.new<string, CandleBarsCollection>()
+
+// === Helpers ===
+getSymbolTickerId(string symbol) =>
+    symbol == "NQ1" ? "CME_MINI:NQ1" :
+     symbol == "ES1" ? "CME_MINI:ES1!" :
+     symbol == "YM1" ? "CBOT_MINI:YM1!" : na
+// Get or create a wrapper
+getOrCreateWrapper(string key) =>
+    CandleBarsCollection wrapper = na
+    if map.contains(historyMap, key)
+        wrapper := map.get(historyMap, key)
+        //log.info("Retrieved existing wrapper for key: " + key)
+    else
+        wrapper := CandleBarsCollection.new(array.new<Bar>())
+        map.put(historyMap, key, wrapper)
+        //log.info("Created new wrapper for key: " + key)
+    wrapper
+
+// Add bar and trim if needed
+addBarToHistory(string key, Bar bar) =>
+    wrapper = getOrCreateWrapper(key)
+    bars = wrapper.bars
+    array.push(bars, bar)
+
+    // log.info(str.format(
+    //      "Added bar to {0} | O={1}, H={2}, L={3}, C={4}, T={5}, TC={6}, BI={7}", 
+    //      key,
+    //      bar.open, bar.high, bar.low, bar.close,
+    //      str.format_time(bar.time,  "{YYYY.MM.dd HH:mm:ss}", TIME_ZONE_NY),
+    //      str.format_time(bar.time_close,  "{YYYY.MM.dd HH:mm:ss}", TIME_ZONE_NY),
+    //      bar.bar_index
+    //  ))
+
+    if array.size(bars) > MAX_HISTORY
+        array.shift(bars)
+        //log.info("Trimmed oldest bar from: " + key)
+
+    log.info("Total bars stored for " + key + ": " + str.tostring(array.size(bars)))
+
+canRequestNewData(string checkTimeFrame) =>
+    bool canRequest = false
+    if(barstate.isnew)
+        int currentSeconds = timeframe.in_seconds(timeframe.period)
+        int checkSeconds   = timeframe.in_seconds(checkTimeFrame)
+
+        if( not na(checkSeconds) and checkSeconds > 86400 and (checkSeconds >= currentSeconds) and timeframe.change(checkTimeFrame) ) 
+            canRequest := true
+        else if (  not na(checkSeconds) and checkSeconds > 0 and ( (checkSeconds == currentSeconds) or ( (checkSeconds > currentSeconds) and (checkSeconds % currentSeconds == 0 ) and timeframe.change(checkTimeFrame)) )   )
+            canRequest := true
+    canRequest
+
+
+
+
+for sym in ARR_MONITOR_SYMBOLS
+    for tf in ARR_MONITOR_TIME_FRAMES
+        if canRequestNewData(tf)
+            string key = sym + "_" + tf
+            bool isSameSymbol = (syminfo.ticker == sym)
+            bool isSameTF = (timeframe.period == tf)
+
+            if isSameSymbol and isSameTF
+                // Use previous bar from chart directly
+                Bar candle = Bar.new(open[1], high[1], low[1], close[1], time[1], time_close[1], bar_index[1])
+                addBarToHistory(key, candle)
+                log.info("Used previous chart bar for: " + key)
+            else
+                [barChanged, o, h, l, c, t, tc, bi] = request.security(getSymbolTickerId(sym),tf,[barstate.isconfirmed, open, high, low, close, time, time_close, bar_index],lookahead = barmerge.lookahead_off)
+
+                if barChanged
+                    Bar newBar = Bar.new(o, h, l, c, t, tc, bi)
+                    addBarToHistory(key, newBar)
+                    log.info("New bar confirmed and added for: " + key)
+
+
+
+//timeframe.period
+
+//log.info(syminfo.prefix + syminfo.ticker + " " + syminfo.tickerid)
