@@ -12,12 +12,12 @@ type Candle
     float close
 
 // -- STORAGE --
-var map<string, Candle> tempHTFCandleMap = map.new<string, Candle>()
+var map<string, Candle> candlesMapHolder = map.new<string, Candle>()
 
 // -- Initialization --
 if barstate.isfirst
     for tf_string in ARR_MONITOR_TIME_FRAMES
-        tempHTFCandleMap.put(tf_string, Candle.new(na, na, na, na))
+        candlesMapHolder.put(tf_string, Candle.new(na, na, na, na))
 
 // -- canRequestNewData function --
 canRequestNewData(string checkTimeFrame) =>
@@ -45,11 +45,11 @@ canRequestNewData(string checkTimeFrame) =>
 // -- Core candle building logic --
 update_htf_data(string tf) =>
     bool is_new_htf_bar = ta.change(time(tf))
-    current_candle = tempHTFCandleMap.get(tf)
+    current_candle = candlesMapHolder.get(tf)
 
     if is_new_htf_bar
         new_candle = Candle.new(open, high, low, close)
-        tempHTFCandleMap.put(tf, new_candle)
+        candlesMapHolder.put(tf, new_candle)
     else
         if na(current_candle.open)
             current_candle.open := open
