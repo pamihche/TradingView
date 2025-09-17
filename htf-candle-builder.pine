@@ -1,77 +1,265 @@
 //@version=6
 indicator("Advanced HTF Candle Builder", overlay=true)
+import PineCoders/Time/5
 
 // -- CONSTANTS --
-const string[] ARR_MONITOR_TIME_FRAMES = array.from("240", "90", "60", "30", "15", "5", "3", "1")
+const string[] ARR_TIME_FRAMES_TO_MONITOR = array.from(
+           '1W',
+           '1D',
+          "240", 
+           "90", 
+           "60", 
+           "30", 
+          "15",
+          "5", 
+          "3", 
+          "1"
+         )
+
+
+
+timeFrametoSeconds(string timeframe) =>
+    string tfStr = str.upper(str.trim(timeframe))
+    float num = str.tonumber(tfStr)
+    float secs = na
+    if not na(num)
+        secs := num * 60
+    else
+        len = str.length(tfStr)
+        unit = str.substring(tfStr, len - 1)
+        qtyStr = str.substring(tfStr, 0, len - 1)
+        qty = str.tonumber(qtyStr)
+        secs := unit == "S" ? qty :
+                 unit == "D" ? qty * 86400 :
+                  unit == "W" ? qty * 7 * 86400 :
+                  unit == "M" ? qty * 30 * 86400 :
+                   0  // Invalid unit fallback
+    secs
+
+compareTimeFrames(string timeFrame1, string timeFrame2) =>
+    sec1 = timeFrametoSeconds(timeFrame1)
+    sec2 = timeFrametoSeconds(timeFrame2)
+    result = sec1 < sec2 ? -1 : sec1 > sec2 ? 1 : 0
+    result
+
+higherTimeFrameHasChanged(string higherTimeFrame) => 
+    switch higherTimeFrame
+        "240" => timeframe.change('240')
+        "90"  => timeframe.change('90')
+        "60"  => timeframe.change('60')
+        "30"  => timeframe.change('30')
+        "15"  => timeframe.change('15')
+        "5"   => timeframe.change('5')
+        "3"   => timeframe.change('3')
+        "1"   => timeframe.change('1')
+
+        "1D"  => timeframe.change('1D')
+        "1W"  => timeframe.change('1W')
+        "1M"  => timeframe.change('1M')
+        "3M"  => timeframe.change('3M')
+        "12M" => timeframe.change('12M')
+
+        => false
 
 // -- DATA STRUCTURES --
 type Candle
-    float open
-    float high
-    float low
-    float close
+    float open        = na
+    float high        = na
+    float low         = na
+    float close       = na
 
-// -- HELPERS --
-canRequestNewData(string checkTimeFrame) =>
+    int openTime      = na
+    int closeTime     = na
+    int barIndex      = na
+    int openBarIndex  = na
+    int highBarIndex  = na
+    int lowBarIndex   = na
+    int closeBarIndex = na
+
+
+
+method isEqualTo(Candle this, Candle toCompare) =>
+    switch
+        nz(this.open)  != nz(toCompare.open)  => false
+        nz(this.high)  != nz(toCompare.high)  => false
+        nz(this.low)   != nz(toCompare.low)   => false
+        nz(this.close) != nz(toCompare.close) => false
+        => true
+
+method hasAllPrices(Candle this) =>
+    switch
+        na(this.open)  => false
+        na(this.high)  => false
+        na(this.low)   => false
+        na(this.close) => false
+        => true
+
+
+
+type CandlesList
+    array<Candle> arrCandles
+
+
+var map<string, CandlesList> candlesMapHolder = map.new<string, CandlesList>()
+
+getSymbolTickerId(string symbol) =>
+    switch symbol
+        "NQ1" => "CME_MINI:NQ1"
+        "ES1" => "CME_MINI:ES1!" 
+        "YM1" => "CBOT_MINI:YM1!"
+        => na
+
+getSymbolMapKey(string symbol, string timeFrame) =>
+    symbol + '-' + timeFrame
+
+canRequestNewData(string checkTimeFrame, bool whenCondition) =>
     bool canRequest = false
-    if barstate.isnew
+
+    if whenCondition
         int currentSeconds = timeframe.in_seconds(timeframe.period)
         int checkSeconds = timeframe.in_seconds(checkTimeFrame)
+        bool tfChanged = timeframe.change(checkTimeFrame) 
 
-        if not na(checkSeconds) and checkSeconds > 86400
-            and checkSeconds >= currentSeconds
-            and timeframe.change(checkTimeFrame)
+        if not na(checkSeconds) and checkSeconds > 86400 and (checkSeconds >= currentSeconds) and tfChanged
             canRequest := true
-        else if not na(checkSeconds) and checkSeconds > 0
-            and (
-                (checkSeconds == currentSeconds) or
-                (
-                    checkSeconds > currentSeconds and
-                    checkSeconds % currentSeconds == 0 and
-                    timeframe.change(checkTimeFrame)
-                )
-            )
+        else if ((checkSeconds == currentSeconds) or ((checkSeconds > currentSeconds) and (checkSeconds % currentSeconds == 0) and tfChanged))
             canRequest := true
     canRequest
 
-// -- STORAGE --
-var map<string, Candle> candlesMapHolder = map.new<string, Candle>()
 
-// -- MAIN EXECUTION --
-update_htf_data() =>
-    string tf = timeframe.period
+
+
+method registerCandle(map<string, CandlesList>candlesMapHolder, string symbolKey, Candle candle) => 
+    
+    CandlesList arrCandlesList = candlesMapHolder.contains(symbolKey) ? candlesMapHolder.get(symbolKey) : CandlesList.new(array.new<Candle>())
+
+    // Candle monitoredCandle =candle.copy()
+    // log.info(symbolKey + " Candle | O: " + str.tostring(monitoredCandle.open) + " H: " + str.tostring(monitoredCandle.high) + " L: " + str.tostring(monitoredCandle.low) + " C: " + str.tostring(monitoredCandle.close))
+
+
+    //arrCandlesList.arrCandles.unshift(candle)
+    arrCandlesList.arrCandles.push(candle)
+
+    if(arrCandlesList.arrCandles.size() > 250)
+        //arrCandlesList.arrCandles.pop()
+        arrCandlesList.arrCandles.shift()
+
+    log.info(str.tostring(arrCandlesList.arrCandles.size()))
+    candlesMapHolder.put(symbolKey, arrCandlesList)
+    
+
+method getRegisteredCandles(map<string, CandlesList>candlesMapHolder, symbolKey, bool reversed = false) => 
+    array<Candle> arrCandles = array.new<Candle>()
+    CandlesList arrCandlesList = candlesMapHolder.get(symbolKey)
+
+    if(not na(arrCandlesList))
+        arrCandles := arrCandlesList.arrCandles
+
+    if(reversed)
+        array.reverse(arrCandles)        
+
+    arrCandles
+
+registerCandlesHistory() =>
 
     var map<string, Candle> tempCandlesMapHolder = map.new<string, Candle>()
-    // Create confirmed candle from previous bar of current TF
-    confirmedCandle = Candle.new(open[1], high[1], low[1], close[1])
 
-    // Store it as the most recently closed candle for this TF
-    candlesMapHolder.put(tf, confirmedCandle)
+    Candle lastConfirmedCandle = barstate.isconfirmed ?  Candle.new(open, high, low, close, time, time_close, bar_index, bar_index, bar_index, bar_index, bar_index) : na
 
-    // Initialize temp HTF candles (only once), skipping the current TF
-    if tempCandlesMapHolder.size() == 0
-        for tf_string in ARR_MONITOR_TIME_FRAMES
-            if tf_string != tf
-                tempCandlesMapHolder.put(tf_string, Candle.new(confirmedCandle.open, na, na, na))
+    if(not na(lastConfirmedCandle) )
+        candlesMapHolder.registerCandle(getSymbolMapKey(syminfo.ticker, timeframe.period), lastConfirmedCandle)
 
-    // Update temp HTF candles and confirm if their bar is complete
-    for [tf_string, tempCandle] in tempCandlesMapHolder
-        tempCandle.high := math.max(tempCandle.high, confirmedCandle.high)
-        tempCandle.low  := math.min(tempCandle.low, confirmedCandle.low)
-        tempCandle.close := canRequestNewData(tf_string) ? confirmedCandle.close : na
+    for monitoredTimeFrame in ARR_TIME_FRAMES_TO_MONITOR
+        if ( not tempCandlesMapHolder.contains(monitoredTimeFrame) and compareTimeFrames(timeframe.period, monitoredTimeFrame) < 0 ) 
+            tempCandlesMapHolder.put(monitoredTimeFrame, Candle.new())
+        
+    // for monitoredTimeFrame in tempCandlesMapHolder.keys()
+    //     log.info("Key->>" + monitoredTimeFrame)
 
-        if na(tempCandle.close)
+    for monitoredTimeFrame in tempCandlesMapHolder.keys()
+        Candle monitoredCandle = tempCandlesMapHolder.get(monitoredTimeFrame)
+        if(na(monitoredCandle))
+            continue 
+
+        if ( barstate.isnew  and higherTimeFrameHasChanged(monitoredTimeFrame) ) //and timeframe.change(monitoredTimeFrame)
+            candlesMapHolder.registerCandle(getSymbolMapKey(syminfo.ticker, monitoredTimeFrame), monitoredCandle.copy())
+            monitoredCandle := Candle.new(open, na, na, na, time, na, bar_index, bar_index, na, na, na)                    
+            tempCandlesMapHolder.put(monitoredTimeFrame, monitoredCandle)
+            log.info("Request for " + monitoredTimeFrame + " " + str.format_time( time, "yyyy-MM-dd HH:mm", "America/New_York"))
+
+
+        if( na(lastConfirmedCandle) )
             continue
 
-        // Confirm the candle by copying the confirmedCandle into candlesMapHolder
-        candlesMapHolder.put(tf_string, confirmedCandle.copy())
+        
+        monitoredCandle.close         := lastConfirmedCandle.close
+        monitoredCandle.closeTime     := lastConfirmedCandle.closeTime
+        monitoredCandle.closeBarIndex := lastConfirmedCandle.closeBarIndex
 
-        // Reset the temp candle for the next HTF bar
-        tempCandle.open := confirmedCandle.open
-        tempCandle.high := na
-        tempCandle.low  := na
-        tempCandle.close := na
+        monitoredCandle.high  := na(monitoredCandle.high) ? lastConfirmedCandle.high : math.max(monitoredCandle.high, lastConfirmedCandle.high)
+        monitoredCandle.low   := na(monitoredCandle.low)  ? lastConfirmedCandle.low  : math.min(monitoredCandle.low, lastConfirmedCandle.low)
+
+        if(monitoredCandle.high == lastConfirmedCandle.high)
+            monitoredCandle.highBarIndex := lastConfirmedCandle.highBarIndex             
+
+        if(monitoredCandle.low == lastConfirmedCandle.low)
+            monitoredCandle.lowBarIndex := lastConfirmedCandle.lowBarIndex             
+
+        tempCandlesMapHolder.put(monitoredTimeFrame, monitoredCandle.copy())
+
+        
+registerCandlesHistory()
+
+
+
 
 // -- CALL MAIN --
-if canRequestNewData(timeframe.period)
-    update_htf_data()
+    // last = Candle.new(open[1], high[1], low[1], close[1], time[1], time, bar_index[1])
+    // log.info("60min Candle | O: " + str.tostring(last.open) + " H: " + str.tostring(last.high) + " L: " + str.tostring(last.low) + " C: " + str.tostring(last.close))
+
+
+// -- LOG LAST 60m CANDLE IF AVAILABLE --
+// if candlesMapHolder.contains("60")
+//     CandlesList sixtyWrapper = candlesMapHolder.get("60")
+//     if array.size(sixtyWrapper.bars) > 0
+//         Candle last = array.get(sixtyWrapper.bars, 0)
+//         log.info("60min Candle | O: " + str.tostring(last.open) + " H: " + str.tostring(last.high) + " L: " + str.tostring(last.low) + " C: " + str.tostring(last.close))
+//     else
+//         log.info("60min Candle: No bars found")
+// else
+//     log.info("60min Candle not yet available")
+
+// if(barstate.islast and  barstate.isrealtime)
+//     for candle in candlesMapHolder.getRegisteredCandles(getSymbolMapKey(syminfo.ticker, "240"))
+//         log.info("Candle | O: " + str.tostring(candle.open) + " H: " + str.tostring(candle.high) + " L: " + str.tostring(candle.low) + " C: " + str.tostring(candle.close))
+
+
+// if(barstate.islast and barstate.isnew)
+//     array<Candle> arrCandles = candlesMapHolder.getRegisteredCandles(getSymbolMapKey(syminfo.ticker, '240'), true)    
+//     for i = array.size(arrCandles) - 1 to 0
+//         if(i > 3)
+//             continue
+//         Candle candle  = arrCandles.get(i)
+//         log.info("Candle | O: " + str.tostring(candle.open) + " H: " + str.tostring(candle.high) + " L: " + str.tostring(candle.low) + " C: " + str.tostring(candle.close, '#.##########'))
+
+
+if(barstate.islast)
+    for candle in candlesMapHolder.getRegisteredCandles(getSymbolMapKey(syminfo.ticker, '60'), false)
+        log.info("Candle | O: " + str.tostring(candle.open) + " H: " + str.tostring(candle.high) + " L: " + str.tostring(candle.low) + " C: " + str.tostring(candle.close, '#.##########'))
+
+
+
+//log.info("Size -->>>> " +str.tostring(candlesMapHolder.size()) )
+
+// if(barstate.islast)
+//     for [key, val] in candlesMapHolder
+//         for i = array.size(val.arrCandles) - 1 to 0
+//             candle  = val.arrCandles.get(i)
+//             log.info(key +" Candle | O: " + str.tostring(candle.open) + " H: " + str.tostring(candle.high) + " L: " + str.tostring(candle.low) + " C: " + str.tostring(candle.close))
+
+
+//log.info(str.tostring(compareTimeFrames("15", '30')))
+
+
+
+
