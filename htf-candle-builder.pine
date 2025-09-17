@@ -132,19 +132,14 @@ canRequestNewData(string checkTimeFrame, bool whenCondition) =>
 method registerCandle(map<string, CandlesList>candlesMapHolder, string symbolKey, Candle candle) => 
     
     CandlesList arrCandlesList = candlesMapHolder.contains(symbolKey) ? candlesMapHolder.get(symbolKey) : CandlesList.new(array.new<Candle>())
-
-    // Candle monitoredCandle =candle.copy()
-    // log.info(symbolKey + " Candle | O: " + str.tostring(monitoredCandle.open) + " H: " + str.tostring(monitoredCandle.high) + " L: " + str.tostring(monitoredCandle.low) + " C: " + str.tostring(monitoredCandle.close))
-
-
     //arrCandlesList.arrCandles.unshift(candle)
     arrCandlesList.arrCandles.push(candle)
 
-    if(arrCandlesList.arrCandles.size() > 250)
+    if(arrCandlesList.arrCandles.size() > 2500)
         //arrCandlesList.arrCandles.pop()
         arrCandlesList.arrCandles.shift()
 
-    log.info(str.tostring(arrCandlesList.arrCandles.size()))
+    //log.info(str.tostring(arrCandlesList.arrCandles.size()))
     candlesMapHolder.put(symbolKey, arrCandlesList)
     
 
@@ -181,11 +176,11 @@ registerCandlesHistory() =>
         if(na(monitoredCandle))
             continue 
 
-        if ( barstate.isnew  and higherTimeFrameHasChanged(monitoredTimeFrame) ) //and timeframe.change(monitoredTimeFrame)
+        if ( higherTimeFrameHasChanged(monitoredTimeFrame) ) //and timeframe.change(monitoredTimeFrame)
             candlesMapHolder.registerCandle(getSymbolMapKey(syminfo.ticker, monitoredTimeFrame), monitoredCandle.copy())
             monitoredCandle := Candle.new(open, na, na, na, time, na, bar_index, bar_index, na, na, na)                    
             tempCandlesMapHolder.put(monitoredTimeFrame, monitoredCandle)
-            log.info("Request for " + monitoredTimeFrame + " " + str.format_time( time, "yyyy-MM-dd HH:mm", "America/New_York"))
+            //log.info("Request for " + monitoredTimeFrame + " " + str.format_time( time, "yyyy-MM-dd HH:mm", "America/New_York"))
 
 
         if( na(lastConfirmedCandle) )
@@ -244,22 +239,11 @@ registerCandlesHistory()
 
 
 if(barstate.islast)
-    for candle in candlesMapHolder.getRegisteredCandles(getSymbolMapKey(syminfo.ticker, '60'), false)
+    for candle in candlesMapHolder.getRegisteredCandles(getSymbolMapKey(syminfo.ticker, '1W'), false)
         log.info("Candle | O: " + str.tostring(candle.open) + " H: " + str.tostring(candle.high) + " L: " + str.tostring(candle.low) + " C: " + str.tostring(candle.close, '#.##########'))
 
 
-
-//log.info("Size -->>>> " +str.tostring(candlesMapHolder.size()) )
-
-// if(barstate.islast)
-//     for [key, val] in candlesMapHolder
-//         for i = array.size(val.arrCandles) - 1 to 0
-//             candle  = val.arrCandles.get(i)
-//             log.info(key +" Candle | O: " + str.tostring(candle.open) + " H: " + str.tostring(candle.high) + " L: " + str.tostring(candle.low) + " C: " + str.tostring(candle.close))
-
-
-//log.info(str.tostring(compareTimeFrames("15", '30')))
-
-
+if(barstate.islast and barstate.isconfirmed)
+    log.info(str.tostring(open))
 
 
