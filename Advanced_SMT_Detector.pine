@@ -1,7 +1,7 @@
 //@version=6
 // -----------------------------------------------------------------------------
 // Title:         Simple SMT Indicator (v6, Truly Final Version)
-// Author:        Nick (Simplified by Jules)
+// Author:        Nick 
 // Version:       1.6.0
 // Description:   A simplified, single-engine version using Pine Script v6.
 //                This version fixes all known syntax and runtime errors.
