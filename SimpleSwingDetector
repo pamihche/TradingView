@@ -1,0 +1,72 @@
+//@version=6
+indicator("Simple Swing High/Low Detector", overlay=true)
+
+// === ENUM: SwingType
+enum SwingType
+    SwingHigh
+    SwingLow
+
+// === UDT: Swing
+type Swing
+    float price
+    int barIndex
+    SwingType type
+    label swingLabel
+
+// === Array to hold detected swings
+var Swing[] swings = array.new<Swing>()
+
+// === Function: Create new Swing
+newSwing(float price, int index, SwingType type) =>
+    var s = Swing.new()
+    s.price := price
+    s.barIndex := index
+    s.type := type
+    s.swingLabel := na
+    s
+
+// === Function: Detect Swing High (3-bar pattern)
+isSwingHigh() =>
+    high[1] > high and high[1] > high[2]
+
+// === Function: Detect Swing Low (3-bar pattern)
+isSwingLow() =>
+    low[1] < low and low[1] < low[2]
+
+// === Function: Get label color
+colorForType(t) =>
+    t == SwingType.SwingHigh ? color.green : color.red
+
+// === Function: Plot label on chart
+plotSwing(s) =>
+    if not na(s.swingLabel)
+        label.delete(s.swingLabel)
+    s.swingLabel := label.new(
+         x = s.barIndex,
+         y = s.price,
+         text = s.type == SwingType.SwingHigh ? "SH" : "SL",
+         textcolor = color.white,
+         style = s.type == SwingType.SwingHigh ? label.style_label_down : label.style_label_up,
+         color = color.new(colorForType(s.type), 0),
+         size = size.tiny,
+         xloc = xloc.bar_index,
+         yloc = yloc.price
+     )
+
+// === Main detection logic
+if bar_index > 1
+    var bool detected = false
+
+    if isSwingHigh()
+        s = newSwing(high[1], bar_index - 1, SwingType.SwingHigh)
+        array.push(swings, s)
+        plotSwing(s)
+        log.info("SwingHigh detected at bar: " + str.tostring(s.barIndex) + ", price: " + str.tostring(s.price))
+        detected := true
+
+    else if isSwingLow()
+        s = newSwing(low[1], bar_index - 1, SwingType.SwingLow)
+        array.push(swings, s)
+        plotSwing(s)
+        log.info("SwingLow detected at bar: " + str.tostring(s.barIndex) + ", price: " + str.tostring(s.price))
+        detected := true
