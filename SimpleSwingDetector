@@ -1,74 +1,118 @@
 //@version=6
-indicator("Simple Swing High/Low Detector", overlay=true)
+indicator("Precise Swing Detector", overlay=true, max_labels_count=500)
 
-// === ENUM: SwingType
+// === Types ===
+type BAR
+    float open
+    float high
+    float low
+    float close
+    int index
+
 enum SwingType
     SwingHigh
     SwingLow
 
-// === UDT: Swing
 type Swing
     float price
     int barIndex
     SwingType type
-    label swingLabel
+    label lbl
 
-// === Array to hold detected swings
-var Swing[] swings = array.new<Swing>()
+// === Parameters ===
+maxBars         = 500                          // Max bars stored for swing detection
+maxSwingsStored = 100                          // Max swings to store in memory
+maxSwingLabels  = input.int(20, "Labels to Plot", minval=1, maxval=100)
 
-// === Function: Create new Swing
-newSwing(float price, int index, SwingType type) =>
-    var s = Swing.new()
-    s.price := price
-    s.barIndex := index
-    s.type := type
-    s.swingLabel := na
-    s
+// === Arrays ===
+var bars   = array.new<BAR>()         // Stores recent bars
+var swings = array.new<Swing>()       // Stores swings
 
-// === Function: Detect Swing High (3-bar pattern)
-isSwingHigh() =>
-    //high[1] > high and high[1] > high[2]
-    high[1] >= high and high[1] >= high[2] and (high[1] > high or high[1] > high[2])
+// === Create bar and swing ===
+createBar() =>
+    BAR.new(open, high, low, close, bar_index)
 
-// === Function: Detect Swing Low (3-bar pattern)
-isSwingLow() =>
-    //low[1] < low and low[1] < low[2]
-    low[1] <= low and low[1] <= low[2] and (low[1] < low or low[1] < low[2])
+createSwing(price, barIndex, type) =>
+    Swing.new(price, barIndex, type, na)
 
-// === Function: Get label color
-colorForType(t) =>
-    t == SwingType.SwingHigh ? color.green : color.red
+// === Detect 3-bar swing patterns ===
+isSwingHigh(prev, mid, next) =>
+    mid >= prev and mid >= next and (mid > prev or mid > next)
 
-// === Function: Plot label on chart
-plotSwing(s) =>
-    if not na(s.swingLabel)
-        label.delete(s.swingLabel)
-    s.swingLabel := label.new(
-         x = s.barIndex,
-         y = s.price,
-         text = s.type == SwingType.SwingHigh ? "SH" : "SL",
+isSwingLow(prev, mid, next) =>
+    mid <= prev and mid <= next and (mid < prev or mid < next)
+
+// === Label plotting ===
+plotSwingLabel(sw) =>
+    if not na(sw.lbl)
+        label.delete(sw.lbl)
+    txt = sw.type == SwingType.SwingHigh ? "SH" : "SL"
+    col = sw.type == SwingType.SwingHigh ? color.green : color.red
+    sw.lbl := label.new(
+         sw.barIndex, sw.price, txt,
+         style = sw.type == SwingType.SwingHigh ? label.style_label_down : label.style_label_up,
+         color = color.new(col, 0),
          textcolor = color.white,
-         style = s.type == SwingType.SwingHigh ? label.style_label_down : label.style_label_up,
-         color = color.new(colorForType(s.type), 0),
-         size = size.tiny,
-         xloc = xloc.bar_index,
-         yloc = yloc.price
+         size = size.tiny
      )
 
-// === Main detection logic
-if bar_index > 1
-    var bool detected = false
+// === Single Entry Point: Add or Replace Swing ===
+addOrReplaceSwing(newSwing, maxSwings) =>
 
-    if isSwingHigh()
-        s = newSwing(high[1], bar_index - 1, SwingType.SwingHigh)
-        array.push(swings, s)
-        plotSwing(s)
-        log.info("SwingHigh detected at bar: " + str.tostring(s.barIndex) + ", price: " + str.tostring(s.price))
-        detected := true
+    int existingIdx = na
+    int size = array.size(swings)
+    
+    for [index, existingSwing] in swings
+        if existingSwing.barIndex == newSwing.barIndex and existingSwing.type == newSwing.type
+            existingIdx := index
+            break
 
-    else if isSwingLow()
-        s = newSwing(low[1], bar_index - 1, SwingType.SwingLow)
-        array.push(swings, s)
-        plotSwing(s)
-        log.info("SwingLow detected at bar: " + str.tostring(s.barIndex) + ", price: " + str.tostring(s.price))
-        detected := true
+    if not na(existingIdx) and size > 0 and existingIdx >= 0 and existingIdx < size
+        Swing oldSwing = array.get(swings, existingIdx)
+        if not na(oldSwing.lbl)
+            label.delete(oldSwing.lbl)
+        array.set(swings, existingIdx, newSwing)
+    else
+        array.push(swings, newSwing)
+        if array.size(swings) > maxSwings
+            oldest = array.shift(swings)
+            if not na(oldest.lbl)
+                label.delete(oldest.lbl)
+    // array.push(swings, newSwing)
+    // if array.size(swings) > maxSwings
+    //     array.shift(swings)
+
+
+   // log.info("" + str.tostring(swings.size()))    
+
+// === Main Logic ===
+if barstate.isconfirmed
+    // Save new bar
+    array.push(bars, createBar())
+    if array.size(bars) > maxBars
+        array.shift(bars)
+
+    // Detect swings (3-bar pattern)
+    if array.size(bars) >= 3
+        prevBar = array.get(bars, array.size(bars) - 3)
+        midBar  = array.get(bars, array.size(bars) - 2)
+        nextBar = array.get(bars, array.size(bars) - 1)
+        
+        // Swing High
+        if isSwingHigh(prevBar.high, midBar.high, nextBar.high)
+            swHigh = createSwing(midBar.high, midBar.index, SwingType.SwingHigh)
+            addOrReplaceSwing(swHigh, maxSwingsStored)
+
+        // Swing Low
+        if isSwingLow(prevBar.low, midBar.low, nextBar.low)
+            swLow = createSwing(midBar.low, midBar.index, SwingType.SwingLow)
+            addOrReplaceSwing(swLow, maxSwingsStored)
+
+// === Plot Swings ===
+if barstate.islast
+    total = array.size(swings)
+    from = math.max(total - maxSwingLabels, 0)
+    for i = from to total - 1
+        sw = array.get(swings, i)
+        if na(sw.lbl)
+            plotSwingLabel(sw)
