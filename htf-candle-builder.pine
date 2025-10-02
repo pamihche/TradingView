@@ -2,6 +2,20 @@
 indicator("Advanced HTF Candle Builder", overlay=true, max_bars_back = 5000)
 
 // -- CONSTANTS --
+
+//const string 
+const string TIMEZONE_NY = "America/New_York"
+// const string SESSION_ASIA = "1800-0230"
+// const string SESSION_LONDON = "0230-0700"
+// const string SESSION_NY_AM = "0700-1130"
+// const string SESSION_NY_PM = "1130-1600"
+
+const string SESSION_ASIA_KEY   = "AS"
+const string SESSION_LONDON_KEY = "LON"
+const string SESSION_NY_AM_KEY  = "NYAM"
+const string SESSION_NY_PM_KEY  = "NYPM"
+const string[] ARR_SESSIONS_KEYS    = array.from(SESSION_ASIA_KEY, SESSION_LONDON_KEY, SESSION_NY_AM_KEY, SESSION_NY_PM_KEY)
+
 const string[] ARR_TIME_FRAMES_TO_MONITOR = array.from(
            '12M', 
          '3M',
@@ -18,34 +32,28 @@ const string[] ARR_TIME_FRAMES_TO_MONITOR = array.from(
           "1"
          )
 
-var string firstMonitoredAsset  = 'ES1!'
-var string secondMonitoredAsset = 'YM1!'
+var string firstMonitoredAsset   = 'ES1!'
+var string secondMonitoredAsset  = 'YM1!'
 
-var arrMonitoredSymbols  = array.new_string()
-if(arrMonitoredSymbols.size() == 0)
-    if not na(firstMonitoredAsset) and str.length(str.trim(firstMonitoredAsset)) != 0
-        arrMonitoredSymbols.push(str.trim(firstMonitoredAsset))
-    if not na(secondMonitoredAsset) and str.length(str.trim(secondMonitoredAsset)) != 0
-        arrMonitoredSymbols.push(str.trim(secondMonitoredAsset))
+//var string[] arrMonitoredSymbols = array.from('ES1!', 'YM1!')
 
-// timeFrameToSeconds(string timeframe) =>
-//     string tfStr = str.upper(str.trim(timeframe))
-//     float num = str.tonumber(tfStr)
-//     float secs = na
-//     if not na(num)
-//         secs := num * 60
-//     else
-//         len    = str.length(tfStr)
-//         unit   = str.substring(tfStr, len - 1)
-//         qtyStr = str.substring(tfStr, 0, len - 1)
-//         qty    = str.tonumber(qtyStr)
-//         secs  := switch unit
-//             'M' => qty * 30 * 86400
-//             'W' => qty * 7 * 86400
-//             'D' => qty * 86400    
-//             'S' => qty
-//             => 0    
-//     secs
+var string[] ARR_MONITORED_ASSETS = array.from('ES1!') //, 'YM1!'
+
+
+isTimestampBetween(ts, sh, sm, eh, em, timezone) =>
+    // Extract the reference date from the timestamp
+    y = year(ts, timezone)
+    m = month(ts, timezone)
+    d = dayofmonth(ts, timezone)
+    // Build start and end timestamps
+    startTs = timestamp(timezone, y, m, d, sh, sm)
+    // Determine if this is a cross-midnight interval
+    crossMidnight = (eh < sh) or (eh == sh and em < sm)
+    // If crossing midnight, end is on the next calendar day
+    endTs = crossMidnight ? timestamp(timezone, y, m, d + 1, eh, em) : timestamp(timezone, y, m, d, eh, em)
+
+    // Check if given timestamp falls inside the range
+    crossMidnight ? (ts >= startTs or ts <= endTs) : (ts >= startTs and ts <= endTs)
 
 compareTimeFrames(string timeFrame1, string timeFrame2) =>
     sec1 = timeframe.in_seconds(timeFrame1)
@@ -53,59 +61,8 @@ compareTimeFrames(string timeFrame1, string timeFrame2) =>
     result = sec1 < sec2 ? -1 : sec1 > sec2 ? 1 : 0
     result
 
-
-// -- DATA STRUCTURES --
-enum SwingType
-    SwingHigh = 'SH'
-    SwingLow  = 'SL'
-
-type Candle
-    float open        = na
-    float high        = na
-    float low         = na
-    float close       = na
-    int openTime      = na
-    int closeTime     = na
-    int barIndex      = na
-
-    int openBarIndex  = na
-    int highBarIndex  = na
-    int lowBarIndex   = na
-    int closeBarIndex = na
-
-type Swing
-    Candle swingCandle  = na
-    SwingType swingType = na
-//    label swingLabel    = na   
-
-
-method isEqualTo(Candle this, Candle toCompare) =>
-    switch
-        nz(this.open)  != nz(toCompare.open)          => false
-        nz(this.high)  != nz(toCompare.high)          => false
-        nz(this.low)   != nz(toCompare.low)           => false
-        nz(this.close) != nz(toCompare.close)         => false
-        nz(this.openTime)  != nz(toCompare.openTime)  => false
-        nz(this.closeTime) != nz(toCompare.closeTime) => false
-        => true
-
-method hasAllPrices(Candle this) =>
-    switch
-        na(this.open)  => false
-        na(this.high)  => false
-        na(this.low)   => false
-        na(this.close) => false
-        => true
-
-type CandlesList
-    array<Candle> arrCandles
-
-type SwingsList
-    array<Swing> arrSwings
-
-var map<string, CandlesList> candlesMapHolder = map.new<string, CandlesList>()
-var map<string, SwingsList>  swingsMapHolder  = map.new<string, SwingsList>()
-
+isNewTradingDay() =>
+    timeframe.change('1D')
 
 getSymbolTickerId(string symbol) =>
     switch symbol
@@ -117,53 +74,6 @@ getSymbolTickerId(string symbol) =>
 getSymbolMapKey(string symbol, string timeFrame) =>
     symbol + '-' + timeFrame
 
-method registerSwing(map<string, SwingsList> this , string symbol, string timeFrame, Swing swingToRegister) => 
-    int maxSwingsToKeep  = timeframe.in_seconds(timeFrame) < 86400 ? 150 : 25 
-    string swingMapKey  = getSymbolMapKey( symbol, timeFrame) + '-' + str.tostring( swingToRegister.swingType )
-    SwingsList arrSwingsList  = this.contains(swingMapKey) ? this.get(swingMapKey) : SwingsList.new(array.new<Swing>())
-    Swing lastRegisteredSwing = arrSwingsList.arrSwings.size() > 0 ?  arrSwingsList.arrSwings.last() : na
-
-    bool canRegisterNewSwing = true
-    if( not na(lastRegisteredSwing) and lastRegisteredSwing.swingCandle.barIndex == swingToRegister.swingCandle.barIndex)    
-        canRegisterNewSwing := lastRegisteredSwing.swingType != swingToRegister.swingType
-
-    if( canRegisterNewSwing )
-        arrSwingsList.arrSwings.push(swingToRegister)
-
-    if(arrSwingsList.arrSwings.size() > maxSwingsToKeep)
-        arrSwingsList.arrSwings.shift()
-        
-    this.put(swingMapKey, arrSwingsList)
-    //log.info("Registered Swing" + str.tostring(swingToRegister.swingType))
-
-method getRegisteredSwings(map<string, SwingsList> this,  string symbol, string timeFrame, SwingType swingType) => 
-    string swingMapKey  = getSymbolMapKey( symbol, timeFrame) + '-' + str.tostring( swingType)
-    SwingsList arrSwingsList = this.get(swingMapKey)
-    na(arrSwingsList) ?  array.new<Swing>() : arrSwingsList.arrSwings
-
-
-
-method registerCandle(map<string, CandlesList>candlesMapHolder, string symbolKey, Candle candle) => 
-    
-    const int maxCandlesToKeep  = 24
-    
-    CandlesList arrCandlesList  = candlesMapHolder.contains(symbolKey) ? candlesMapHolder.get(symbolKey) : CandlesList.new(array.new<Candle>())
-    Candle lastRegisteredCandle = arrCandlesList.arrCandles.size() > 0 ?  arrCandlesList.arrCandles.last() : na
-
-    bool canRegisterNewCandle   = (not na(lastRegisteredCandle)) ? (candle.openTime != lastRegisteredCandle.openTime and candle.closeTime != lastRegisteredCandle.closeTime) : true
-
-    if ( canRegisterNewCandle )
-        arrCandlesList.arrCandles.push(candle)
-
-    if(arrCandlesList.arrCandles.size() > maxCandlesToKeep)
-        arrCandlesList.arrCandles.shift()
-        
-    candlesMapHolder.put(symbolKey, arrCandlesList)
-
-
-method getRegisteredCandles(map<string, CandlesList>candlesMapHolder, symbolKey) => 
-    CandlesList arrCandlesList = candlesMapHolder.get(symbolKey)
-    na(arrCandlesList) ?  array.new<Candle>() : arrCandlesList.arrCandles
 
 higherTimeFrameHasChanged(string higherTimeFrame) => 
     switch higherTimeFrame
@@ -185,6 +95,392 @@ higherTimeFrameHasChanged(string higherTimeFrame) =>
 
 
 
+
+// -- DATA STRUCTURES --
+
+
+
+
+
+enum SwingType
+    SwingHigh = 'SH'
+    SwingLow  = 'SL'
+
+type Candle
+    float openPrice   = 0
+    float highPrice   = 0
+    float lowPrice    = 0
+    float closePrice  = 0
+    int openTime      = 0
+    int closeTime     = 0
+    int barIndex      = 0
+
+    int openBarIndex  = 0
+    int highBarIndex  = 0
+    int lowBarIndex   = 0
+    int closeBarIndex = 0
+
+type SessionCycle
+    string Key  = na
+    string Name = na
+    string Period = na
+    Candle FirstCandle = na
+    Candle LastCandle = na
+    Candle HighestCandle = na
+    Candle LowestCandle = na
+
+type Session
+    string Name = na
+    string Key = na
+    SessionCycle[] Cycles
+
+
+type Swing
+    Candle Candle  = na
+    SwingType Type = na
+//    label swingLabel    = na   
+
+enum SmtType
+    Bullish 
+    Bearish 
+
+type SMT
+    SmtType Type
+    Candle StartCandle = na
+    Candle EndCandle = na
+    bool IsSwingBased    
+    bool IsValid
+    line LineId
+
+
+type CandlesList
+    array<Candle> arrCandles
+
+type SwingsList
+    array<Swing> arrSwings
+
+
+var map<string, CandlesList> candlesMapHolder = map.new<string, CandlesList>()
+var map<string, SwingsList>  swingsMapHolder  = map.new<string, SwingsList>()
+
+var Candle MainAssetCandle    = Candle.new()
+var Candle SecondAssetCandle  = Candle.new()
+var Candle ThirdAssetCandle   = Candle.new()
+
+
+method getPeriod(Session this) =>
+    first = this.Cycles.first()
+    last  = this.Cycles.last()
+    str.format("{0}-{1}",  array.get(str.split(first.Period, "-"), 0), array.get(str.split(last.Period, "-"), 1))
+
+// method isActive(Session this) =>
+//     not na(time(timeframe.period, this.getPeriod(), TIMEZONE_NY))
+
+// method isActive(SessionCycle this) =>
+//     not na(time(timeframe.period, this.Period, TIMEZONE_NY))
+
+method isClosed(SessionCycle this) =>
+    bool isClosed = (not na(this.LastCandle)) and this.LastCandle.barIndex > 0 
+
+method isClosed(Session this) =>
+
+    bool isClosed = na(this.Cycles) or this.Cycles.size() == 0
+    if not isClosed and time > timestamp(TIMEZONE_NY, year, month, dayofmonth + (( hour(time, TIMEZONE_NY) < 18 ) ? -1 : 0 ), 18, 0)
+        for sessionCycle in this.Cycles
+            isClosed := sessionCycle.isClosed()
+            if(not isClosed)
+                break
+    isClosed            
+
+
+method setPrices(Candle this, float openPrice = open, float highPrice = high, float lowPrice = low, float closePrice = close) =>
+    this.openPrice  := openPrice
+    this.highPrice  := highPrice
+    this.lowPrice   := lowPrice
+    this.closePrice := closePrice
+
+method setBarIndex(Candle this, int barIndex = bar_index) =>
+    this.barIndex := barIndex
+
+method setOpenCloseTime(Candle this, int openTime = time, int closeTime = time_close) =>
+    this.openTime  := openTime
+    this.closeTime := closeTime
+
+method getSortingKey(Candle this, sortingOrder = order.ascending) =>
+    string candleKey = na
+    if not na(this.openTime) and not na(this.openPrice)
+        timeKey    = sortingOrder == order.ascending  ? this.openTime  : -this.openTime
+        priceKey   = sortingOrder == order.ascending  ? this.openPrice      : -this.openPrice
+        candleKey := str.tostring(timeKey, "#010") + "_"  + str.tostring(priceKey, "#010.4")
+    candleKey
+
+method isEqualTo(Candle this, Candle toCompare) =>
+    switch
+        nz(this.openPrice)  != nz(toCompare.openPrice)   => false
+        nz(this.highPrice)  != nz(toCompare.highPrice)   => false
+        nz(this.lowPrice)   != nz(toCompare.lowPrice)    => false
+        nz(this.closePrice) != nz(toCompare.closePrice)  => false
+        nz(this.openTime)   != nz(toCompare.openTime)    => false
+        nz(this.closeTime)  != nz(toCompare.closeTime)   => false
+        => true
+
+method hasAllPrices(Candle this) =>
+    switch
+        nz(this.openPrice) == 0 => false
+        nz(this.highPrice) == 0 => false
+        nz(this.lowPrice)  == 0 => false
+        nz(this.closePrice)== 0 => false
+        => true
+
+
+method isInPeriod(Candle this, string sessionPeriod, string candleSymbol, timeFramePeriod = timeframe.period) =>
+    bool isInPeriod = na(this)
+    int checkBarsBack    = (candleSymbol == syminfo.ticker) ? 0 : 1
+    isInPeriod     := not na(time(timeFramePeriod, sessionPeriod, TIMEZONE_NY, bars_back = checkBarsBack))
+
+method isFirstInPeriod(Candle this, string sessionPeriod, string candleSymbol, timeFramePeriod = timeframe.period) =>
+
+    bool isFirstInPeriod = na(this)
+    int checkBarsBack    = (candleSymbol == syminfo.ticker) ? 0 : 1
+    isFirstInPeriod     := not na(time(timeFramePeriod, sessionPeriod, TIMEZONE_NY, bars_back = checkBarsBack))
+    isFirstInPeriod     := isFirstInPeriod ? na(time(timeFramePeriod, sessionPeriod, TIMEZONE_NY, bars_back = checkBarsBack + 1)) : false // prev period
+
+
+method isLastInPeriod(Candle this, string sessionPeriod, string candleSymbol,  timeFramePeriod = timeframe.period) =>
+       
+    bool isLastInPeriod = na(this)
+    int checkBarsBack    = (candleSymbol == syminfo.ticker) ? 0 : 1
+    isLastInPeriod     := not na(time_close(timeFramePeriod, sessionPeriod, TIMEZONE_NY, bars_back = checkBarsBack))
+    isLastInPeriod := isLastInPeriod ?  na(time_close(timeFramePeriod, sessionPeriod, TIMEZONE_NY, bars_back = checkBarsBack -1))  : false
+
+
+method getRegisteredCandles(map<string, CandlesList>candlesMapHolder, symbolKey) => 
+    CandlesList arrCandlesList = candlesMapHolder.get(symbolKey)
+    na(arrCandlesList) or na(arrCandlesList.arrCandles)?  array.new<Candle>() : arrCandlesList.arrCandles
+    
+method getLastRegisteredCandles(map<string, CandlesList>this, string symbolKey, int howMany) => 
+    CandlesList arrCandlesList = this.get(symbolKey)
+    arrLastCandles = array.new<Candle>()
+
+    if not na(arrCandlesList) and not na ( arrCandlesList.arrCandles) and howMany > 0 and  arrCandlesList.arrCandles.size() > 0
+        int arrSize     = arrCandlesList.arrCandles.size()
+        int actualCount = arrSize - math.min(howMany,arrSize)
+        for i =  arrSize -1 to actualCount 
+            arrLastCandles.push( arrCandlesList.arrCandles.get(i) )
+    arrLastCandles
+
+method getLastRegisteredCandle(map<string, CandlesList>this, string symbolKey) => 
+    CandlesList arrCandlesList = this.get(symbolKey)
+    Candle lastRegisteredCandle = not na(arrCandlesList) and arrCandlesList.arrCandles.size() > 0 ?  arrCandlesList.arrCandles.last() : na
+    lastRegisteredCandle
+
+
+method getDeepCopy(Session this) =>
+    Session newSession = Session.new(this.Key, this.Name)
+    newSession.Cycles := array.new<SessionCycle>()
+    for [index, originalCycle] in this.Cycles
+        newCycle = SessionCycle.new(Key = originalCycle.Key, Name = originalCycle.Name, Period = originalCycle.Period, FirstCandle = originalCycle.FirstCandle.copy(), LastCandle = originalCycle.LastCandle.copy(), HighestCandle = originalCycle.HighestCandle.copy(), LowestCandle = originalCycle.LowestCandle.copy())
+        newSession.Cycles.push(newCycle)
+    newSession
+
+method registerCandle(Session this, Candle newCandle, string monitoredSymbol) =>
+
+    for i = this.Cycles.size() - 1 to 0
+        if(newCandle.barIndex == 0)
+            break
+
+        SessionCycle sessionCycle =  this.Cycles.get(i)
+
+        if(sessionCycle.isClosed())
+            continue
+
+        if( sessionCycle.FirstCandle.barIndex == 0)    //and newCandle.isFirstInPeriod(sessionCycle.Period)
+            sessionCycle.FirstCandle   := newCandle.copy()
+            sessionCycle.HighestCandle := newCandle.copy()
+            sessionCycle.LowestCandle  := newCandle.copy()
+            this.Cycles.set(i, sessionCycle)
+            break
+
+        if(newCandle.isLastInPeriod(sessionCycle.Period, monitoredSymbol))
+            sessionCycle.LastCandle    := newCandle.copy()
+
+        if( sessionCycle.HighestCandle.highPrice <= newCandle.highPrice )
+            sessionCycle.HighestCandle := newCandle.copy()
+
+        if( sessionCycle.LowestCandle.lowPrice >= newCandle.lowPrice )
+            sessionCycle.LowestCandle := newCandle.copy()
+
+        this.Cycles.set(i, sessionCycle)               
+
+        break
+
+var map<string, Session> SessionsMapHolder = map.new<string, Session>()
+
+method getAssetSessionKey(map<string, Session> this, string monitoredSymbol, string sessionKey) =>
+    not(na(this)) ? monitoredSymbol + '-'+ sessionKey : ''
+
+
+method handleSessions(map<string, Session> this) =>
+
+    if( (barstate.isnew and isNewTradingDay()) )
+
+        AsiaSession = Session.new(SESSION_ASIA_KEY, 'Asia', array.from(
+             SessionCycle.new("SESSION_ASIA_1", 'C1', "1800-1900", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_ASIA_2", 'C1', "1900-2030", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_ASIA_3", 'C1', "2030-2200", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_ASIA_4", 'C1', "2200-2330", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_ASIA_5", 'C1', "2330-0100", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_ASIA_6", 'C1', "0100-0230", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new())
+         ))
+
+        LondonSession = Session.new(SESSION_LONDON_KEY, 'London', array.from(
+             SessionCycle.new("SESSION_LONDON_1", 'C1', "0230-0400", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_LONDON_2", 'C1', "0400-0530", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_LONDON_3", 'C1', "0530-0700", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new())
+         ))
+
+        NYAMSession = Session.new(SESSION_NY_AM_KEY, 'NYAM', array.from(
+             SessionCycle.new("SESSION_NY_AM_1", 'C1', "0700-0830", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_NY_AM_2", 'C1', "0830-1000", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_NY_AM_3", 'C1', "1000-1130", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new())
+         ))
+
+        NYPMSession = Session.new(SESSION_NY_PM_KEY, 'NYPM', array.from(
+             SessionCycle.new("SESSION_NY_PM_1", 'C1', "1130-1300", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_NY_PM_2", 'C1', "1300-1430", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
+             SessionCycle.new("SESSION_NY_PM_3", 'C1', "1430-1600", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new())
+         ))
+
+        for monitoredSymbol in array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+            this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_ASIA_KEY),   AsiaSession.getDeepCopy())
+            this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_LONDON_KEY), LondonSession.getDeepCopy())
+            this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_AM_KEY),  NYAMSession.getDeepCopy())
+            this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_PM_KEY),  NYPMSession.getDeepCopy())
+
+
+    if (this.size() > 0)
+
+        for monitoredSymbol  in array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+            for sessionKey in ARR_SESSIONS_KEYS
+
+                Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
+                if na(registeredSession) or registeredSession.isClosed()
+                    continue  
+                // if(not registeredSession.isActive())    
+                //     continue
+
+                Candle lastRegisteredCandle = candlesMapHolder.getLastRegisteredCandle(getSymbolMapKey(monitoredSymbol, timeframe.period))
+                if(not na(lastRegisteredCandle))
+                    registeredSession.registerCandle(lastRegisteredCandle, monitoredSymbol)
+                    this.put(this.getAssetSessionKey(monitoredSymbol, sessionKey), registeredSession)
+   
+method getSessionHighestCandle(map<string, Session> this, string monitoredSymbol, string sessionKey) =>
+    Candle highestCandle = Candle.new()
+    Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
+    if not na(registeredSession) and not na(registeredSession.Cycles) and registeredSession.Cycles.size() > 0
+        for sessionCycle in registeredSession.Cycles
+            if sessionCycle.HighestCandle.highPrice > highestCandle.highPrice
+                highestCandle := sessionCycle.HighestCandle.copy()
+
+    highestCandle                
+
+method getSessionLowestCandle(map<string, Session> this, string monitoredSymbol, string sessionKey) =>
+    Candle lowestCandle = Candle.new(lowPrice = 1000000)
+    Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
+    if not na(registeredSession) and not na(registeredSession.Cycles) and registeredSession.Cycles.size() > 0
+        for sessionCycle in registeredSession.Cycles
+            if sessionCycle.LowestCandle.lowPrice > 0 and sessionCycle.LowestCandle.lowPrice < lowestCandle.lowPrice
+                lowestCandle := sessionCycle.LowestCandle.copy()
+                
+    lowestCandle.barIndex == 0 ?  Candle.new() : lowestCandle          
+
+
+initializeRealTimeCandles() =>
+
+    MainAssetCandle.setBarIndex()
+    MainAssetCandle.setPrices()
+    MainAssetCandle.setOpenCloseTime()
+
+
+    if not na(firstMonitoredAsset) and str.length(str.trim(firstMonitoredAsset)) != 0
+        [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(firstMonitoredAsset), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
+        SecondAssetCandle.setBarIndex(nz(bi))
+        SecondAssetCandle.setOpenCloseTime(nz(ot), nz(ct))
+        SecondAssetCandle.setPrices(nz(o), nz(h), nz(l), nz(c))
+        
+    if not na(secondMonitoredAsset) and str.length(str.trim(secondMonitoredAsset)) != 0
+        [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(secondMonitoredAsset), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
+        ThirdAssetCandle.setBarIndex(nz(bi))
+        ThirdAssetCandle.setOpenCloseTime(nz(ot), nz(ct))
+        ThirdAssetCandle.setPrices(nz(o), nz(h), nz(l), nz(c))
+
+    // if(barstate.islast)
+    //     log.info(str.tostring(MainAssetCandle.closePrice) + "  S -> " + str.tostring(SecondAssetCandle.closePrice) + " T  " + str.tostring(ThirdAssetCandle.closePrice))
+
+initializeRealTimeCandles()
+
+
+method registerSwing(map<string, SwingsList> this , string symbol, string timeFrame, Swing swingToRegister) => 
+
+    int maxSwingsToKeep  = timeframe.in_seconds(timeFrame) < 86400 ? 100 : 25 
+    
+    string swingMapKey  = getSymbolMapKey( symbol, timeFrame) + '-' + str.tostring( swingToRegister.Type )
+    SwingsList arrSwingsList  = this.contains(swingMapKey) ? this.get(swingMapKey) : SwingsList.new(array.new<Swing>())
+    Swing lastRegisteredSwing = arrSwingsList.arrSwings.size() > 0 ?  arrSwingsList.arrSwings.last() : na
+
+    bool canRegisterNewSwing = true
+    if( not na(lastRegisteredSwing) and lastRegisteredSwing.Candle.barIndex == swingToRegister.Candle.barIndex)    
+        canRegisterNewSwing := lastRegisteredSwing.Type != swingToRegister.Type
+
+    if( canRegisterNewSwing )
+
+        for i = arrSwingsList.arrSwings.size() - 1 to 0
+            Swing registeredSwing  = arrSwingsList.arrSwings.get(i)
+            if (  swingToRegister.Type  == SwingType.SwingLow )
+                if ( registeredSwing.Candle.lowPrice >= swingToRegister.Candle.lowPrice )
+                    arrSwingsList.arrSwings.remove(i)
+            if (  swingToRegister.Type  == SwingType.SwingHigh )
+                if ( registeredSwing.Candle.highPrice <= swingToRegister.Candle.highPrice )
+                    arrSwingsList.arrSwings.remove(i)
+
+        arrSwingsList.arrSwings.push(swingToRegister)
+
+    if(arrSwingsList.arrSwings.size() > maxSwingsToKeep)
+        arrSwingsList.arrSwings.shift()
+        
+    this.put(swingMapKey, arrSwingsList)
+
+method getRegisteredSwings(map<string, SwingsList> this,  string symbol, string timeFrame, SwingType swingType) => 
+    string swingMapKey  = getSymbolMapKey( symbol, timeFrame) + '-' + str.tostring( swingType)
+    SwingsList arrSwingsList = this.get(swingMapKey)
+    na(arrSwingsList) ?  array.new<Swing>() : arrSwingsList.arrSwings
+
+method getLastRegisteredSwings(map<string, SwingsList> this,  string symbol, string timeFrame, SwingType swingType, int howMany) => 
+    string swingMapKey  = getSymbolMapKey( symbol, timeFrame) + '-' + str.tostring( swingType)
+    SwingsList arrSwingsList = this.get(swingMapKey)
+    na(arrSwingsList) ?  array.new<Swing>() : arrSwingsList.arrSwings.slice(  -math.abs(howMany) )
+
+method registerCandle(map<string, CandlesList>this, string symbolKey, Candle candle) => 
+    
+    const int maxCandlesToKeep  = 24
+    
+    CandlesList arrCandlesList  = this.contains(symbolKey) ? this.get(symbolKey) : CandlesList.new(array.new<Candle>())
+    Candle lastRegisteredCandle = arrCandlesList.arrCandles.size() > 0 ?  arrCandlesList.arrCandles.last() : na
+
+    //bool canRegisterNewCandle  = (not na(lastRegisteredCandle)) ? (candle.openTime != lastRegisteredCandle.openTime and candle.closeTime != lastRegisteredCandle.closeTime) : true
+    bool canRegisterNewCandle  = (not na(lastRegisteredCandle)) ? candle.barIndex != lastRegisteredCandle.barIndex : true
+    if ( canRegisterNewCandle )
+        arrCandlesList.arrCandles.push(candle)
+        //log.info(  " Registered -> "+ symbolKey + "   Candle | O: " + str.tostring(candle.open) + " H: " + str.tostring(candle.high) + " L: " + str.tostring(candle.low) + " C: " + str.tostring(candle.close) + " BI: " + str.tostring(candle.barIndex))
+        // log.info("Time -> " + str.tostring(timenow))    
+    if(arrCandlesList.arrCandles.size() > maxCandlesToKeep)
+        arrCandlesList.arrCandles.shift()
+        //log.info('removing ->  ' + str.tostring(candle.barIndex))
+        
+    this.put(symbolKey, arrCandlesList)
+    
+
+
 registerCandlesHistory() =>
 
     var map<string, Candle> tempCandlesMapHolder = map.new<string, Candle>()
@@ -198,9 +494,6 @@ registerCandlesHistory() =>
         if ( not tempCandlesMapHolder.contains(monitoredTimeFrame) and compareTimeFrames(timeframe.period, monitoredTimeFrame) < 0 ) 
             tempCandlesMapHolder.put(monitoredTimeFrame, Candle.new())
         
-    // for monitoredTimeFrame in tempCandlesMapHolder.keys()
-    //     log.info("Key->>" + monitoredTimeFrame)
-
     for monitoredTimeFrame in tempCandlesMapHolder.keys()
         Candle monitoredCandle = tempCandlesMapHolder.get(monitoredTimeFrame)
         if(na(monitoredCandle))
@@ -218,17 +511,17 @@ registerCandlesHistory() =>
         if( na(lastConfirmedCandle) )
             continue
         
-        monitoredCandle.close         := lastConfirmedCandle.close
+        monitoredCandle.closePrice    := lastConfirmedCandle.closePrice
         monitoredCandle.closeTime     := lastConfirmedCandle.closeTime
         monitoredCandle.closeBarIndex := lastConfirmedCandle.closeBarIndex
 
-        monitoredCandle.high  := na(monitoredCandle.high) ? lastConfirmedCandle.high : math.max(monitoredCandle.high, lastConfirmedCandle.high)
-        monitoredCandle.low   := na(monitoredCandle.low)  ? lastConfirmedCandle.low  : math.min(monitoredCandle.low, lastConfirmedCandle.low)
+        monitoredCandle.highPrice  := na(monitoredCandle.highPrice) ? lastConfirmedCandle.highPrice : math.max(monitoredCandle.highPrice, lastConfirmedCandle.highPrice)
+        monitoredCandle.lowPrice   := na(monitoredCandle.lowPrice)  ? lastConfirmedCandle.lowPrice  : math.min(monitoredCandle.lowPrice, lastConfirmedCandle.lowPrice)
 
-        if(monitoredCandle.high == lastConfirmedCandle.high)
+        if(monitoredCandle.highPrice == lastConfirmedCandle.highPrice)
             monitoredCandle.highBarIndex := lastConfirmedCandle.highBarIndex             
 
-        if(monitoredCandle.low == lastConfirmedCandle.low)
+        if(monitoredCandle.lowPrice == lastConfirmedCandle.lowPrice)
             monitoredCandle.lowBarIndex := lastConfirmedCandle.lowBarIndex             
 
         tempCandlesMapHolder.put(monitoredTimeFrame, monitoredCandle)
@@ -248,143 +541,84 @@ registerOtherAssetsCandlesHistory() =>
         if( (compareTimeFrames(monitoredTimeFrame, timeframe.period) < 0) ) //or ( not higherTimeFrameHasChanged(monitoredTimeFrame) ) 
             continue
 
-        Candle otherAssetCandle = na    
-        if not na(firstMonitoredAsset) and str.length(str.trim(firstMonitoredAsset)) != 0
-            [o, h, l, c, ot, ct, bi] = request.security(firstMonitoredAsset, monitoredTimeFrame, [open[1], high[1], low[1], close[1], time[1], time_close[1], bar_index[1]], lookahead = barmerge.lookahead_off)
-                         //[open[1], high[1], low[1], close[1], time[1], time_close[1]], lookahead = barmerge.lookahead_on)
-                    
+        Candle otherAssetCandle = na
+
+        for monitoredSymbol in ARR_MONITORED_ASSETS
+            //[o, h, l, c, ot, ct, bi] = request.security(firstMonitoredAsset, monitoredTimeFrame, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
+            [o, h, l, c, ot, ct, bi] = request.security(monitoredSymbol, monitoredTimeFrame,[open[1], high[1], low[1], close[1], time[1], time_close[1], bar_index[1]], lookahead = barmerge.lookahead_on)
+
             otherAssetCandle := Candle.new(o, h, l, c, ot, ct, bi)
-
-            if otherAssetCandle.hasAllPrices()
-                candlesMapHolder.registerCandle(getSymbolMapKey(firstMonitoredAsset, monitoredTimeFrame), otherAssetCandle.copy())
-                // if monitoredTimeFrame == '1'
-                //     log.info(  " TimeFrane -> "+ monitoredTimeFrame + "   Candle | O: " + str.tostring(otherAssetCandle.open) + " H: " + str.tostring(otherAssetCandle.high) + " L: " + str.tostring(otherAssetCandle.low) + " C: " + str.tostring(otherAssetCandle.close, '#.##########'))
-
-        if not na(secondMonitoredAsset) and str.length(str.trim(secondMonitoredAsset)) != 0
-            [o, h, l, c, ot, ct, bi] = request.security(secondMonitoredAsset, monitoredTimeFrame,[open[1], high[1], low[1], close[1], time[1], time_close[1], bar_index[1]], lookahead = barmerge.lookahead_off)
-                         //[open[1], high[1], low[1], close[1], time[1], time_close[1]], lookahead = barmerge.lookahead_on)
-                    
-            otherAssetCandle := Candle.new(o, h, l, c, ot, ct, bi)
-
-            if otherAssetCandle.hasAllPrices()
-                candlesMapHolder.registerCandle(getSymbolMapKey(secondMonitoredAsset, monitoredTimeFrame), otherAssetCandle.copy())
-            //log.info(  " TimeFrane -> "+ monitoredTimeFrame + "   Candle | O: " + str.tostring(otherAssetCandle.open) + " H: " + str.tostring(otherAssetCandle.high) + " L: " + str.tostring(otherAssetCandle.low) + " C: " + str.tostring(otherAssetCandle.close, '#.##########'))
+            if(not na(otherAssetCandle.barIndex) and otherAssetCandle.hasAllPrices())
+                candlesMapHolder.registerCandle(getSymbolMapKey(monitoredSymbol, monitoredTimeFrame), otherAssetCandle)
 
 registerOtherAssetsCandlesHistory()
 
 
-processRegisteredCandles() =>
-   
-    var arrRegisteredCandles =  array.new<Candle>() 
 
-    for monitoredSymbol in array.concat(array.from(syminfo.ticker), arrMonitoredSymbols)
-        for monitoredTimeFrame in ARR_TIME_FRAMES_TO_MONITOR
-            if( (not barstate.isconfirmed) or (compareTimeFrames(monitoredTimeFrame, timeframe.period) < 0) )
-                continue
+startMonitoringRegisteredAssets() => 
 
-            arrRegisteredCandles :=  candlesMapHolder.getRegisteredCandles(getSymbolMapKey(monitoredSymbol, monitoredTimeFrame))
-            //log.info("Sym -> " + monitoredSymbol + " timeframe -> " + monitoredTimeFrame + " size -> " + str.tostring(arrRegisteredCandles.size()))    
-
-            if(arrRegisteredCandles.size() < 3)
-                continue
-            
-            Candle prevCandle = arrRegisteredCandles.get(arrRegisteredCandles.size() - 3)
-            Candle midCandle  = arrRegisteredCandles.get(arrRegisteredCandles.size() - 2)
-            Candle nextCandle = arrRegisteredCandles.get(arrRegisteredCandles.size() - 1)
+    SessionsMapHolder.handleSessions()
 
 
-            // Swing High
-            if ( (midCandle.high >= prevCandle.high)  and  (midCandle.high >= nextCandle.high)  and  (  midCandle.high > prevCandle.high  or  midCandle.high > nextCandle.high  )  ) 
-                swingsMapHolder.registerSwing(monitoredSymbol, monitoredTimeFrame, Swing.new(midCandle, SwingType.SwingHigh))    
-                //log.info("register swing H here -> " + str.tostring(SwingType.SwingHigh))     
-                // swHigh = createSwing(midBar.high, midBar.index, SwingType.SwingHigh)
-                // addOrReplaceSwing(swHigh, maxSwingsStored)
-
-            if ( (midCandle.high <= prevCandle.high)  and  (midCandle.high <= nextCandle.high)  and  (  midCandle.high < prevCandle.high  or  midCandle.high < nextCandle.high  )  ) 
-                swingsMapHolder.registerSwing(monitoredSymbol, monitoredTimeFrame, Swing.new(midCandle, SwingType.SwingLow)) 
-                //log.info("register swing L here")     
-
-            // swLow = createSwing(midBar.low, midBar.index, SwingType.SwingLow)
-            // addOrReplaceSwing(swLow, maxSwingsStored)
-
-processRegisteredCandles()
-
-enum SmtType
-    Bullish = 'Asset A breaks a lower low, B does not → Bullish SMT'
-    Bearish = 'Another Long String Here'
-
-type SMT
-    SmtType Type
-    Candle StartCandle
-    Candle EndCandle
-    bool IsSwingBased    
-    bool IsValid
-    line LineId
+startMonitoringRegisteredAssets()
 
 
-var map<string, SMT> detectedSmtMapHolder = map.new<string, SMT>()
-
-detectSmt(SmtType smtType) =>
-
-    arrPrimarySwings   = swingsMapHolder.getRegisteredSwings(syminfo.ticker, '1', SwingType.SwingHigh)
-    arrMonitoredSwings = swingsMapHolder.getRegisteredSwings('ES1!', '1', SwingType.SwingHigh)
-
-    int indexA = array.size(arrPrimarySwings) - 1
-    int indexB = array.size(arrMonitoredSwings) - 1
-
-    bool checkBullishSmt = (smtType == SmtType.Bullish)
-
-    int allowableBarsDifference = 2
-
-    int timeThreshold = allowableBarsDifference * timeframe.in_seconds('1') * 1000
-    SMT detectedSmt = na
-
-    while indexA > 0 and indexB > 0 and na(detectedSmt)
-        primaryCurrentSwing    = arrPrimarySwings.get(indexA)
-        primaryPreviousSwing   = arrPrimarySwings.get(indexA - 1)
-        monitoredCurrentSwing  = arrMonitoredSwings.get(indexB)
-        monitoredPreviousSwing = arrMonitoredSwings.get(indexB - 1)
-
-        timeDifference = math.abs(primaryCurrentSwing.swingCandle.openTime - monitoredCurrentSwing.swingCandle.openTime)
-
-        aBreaksLow = primaryCurrentSwing.swingCandle.low   < primaryPreviousSwing.swingCandle.low
-        bHoldsLow  = monitoredCurrentSwing.swingCandle.low >= monitoredPreviousSwing.swingCandle.low    //currB.price >= prevB.price  // Divergence or equal low
-
-        aBreaksHigh = primaryCurrentSwing.swingCandle.high  > primaryPreviousSwing.swingCandle.high
-        bHoldsHigh  = monitoredCurrentSwing.swingCandle.high <= monitoredPreviousSwing.swingCandle.high
-
-        if timeDifference <= timeThreshold
-
-            if (checkBullishSmt  and  (aBreaksLow and bHoldsLow) ) // bullish SMT detected here
-                detectedSmt := SMT.new(SmtType.Bullish, primaryPreviousSwing.swingCandle, primaryCurrentSwing.swingCandle, true, true, na)
-            else if(aBreaksHigh and bHoldsHigh) // berrish SMT detected here 
-                detectedSmt := SMT.new(SmtType.Bearish, primaryPreviousSwing.swingCandle, primaryCurrentSwing.swingCandle, true, true, na)
-
-            if not na (detectedSmt)
-                detectedSmtMapHolder.put('TEST', detectedSmt)
-
-            indexA -= 1
-            indexB -= 1        
-        else if ( primaryCurrentSwing.swingCandle.openTime > monitoredCurrentSwing.swingCandle.openTime )
-            indexA -= 1
-        else
-            indexB -= 1
-
-    //log.info('---------------------------------------------------------------------')
-
-
-//var bool isDebugEnabled = true
-if(barstate.islast  and barstate.isconfirmed ) // and isDebugEnabled
-    //isDebugEnabled := false
+if( barstate.isconfirmed ) // barstate.islast   and and isDebugEnabled.   and barstate.isconfirmed //d  and isDebugEnabled
+    
     log.info('------------------- HERE -------------------------')
-   // detectSmt(SmtType.Bullish)
+
+    // for candle in candlesMapHolder.getLastRegisteredCandles(getSymbolMapKey('ES1!', timeframe.period), 1)
+
+    //     //log.info(str.format_time(candle.openTime, "HHmm", TIMEZONE_NY))
+
+    //     if(str.format_time(candle.openTime, "HHmm", TIMEZONE_NY) == "1900"  and str.format_time(candle.closeTime, "HHmm", TIMEZONE_NY) == "1905"   )
+    //         //log.info(str.tostring(second(candle.closeTime)))
+      
+    //         if candle.isInPeriod('1800-2030', 'ES1!')    
+    //             log.info("ESTE MA")
+
+
+
+    // for monitoredSymbol in ARR_MONITORED_ASSETS
+    //     log.info(monitoredSymbol)
+    //SessionsMapHolder.handleSessions()
+//    log.info('Adii -> ' + str.tostring(SessionsMapHolder.size()))
+
+
+    Candle asiaHCandle  = SessionsMapHolder.getSessionHighestCandle(syminfo.ticker, SESSION_ASIA_KEY)
+    log.info("Asia H -> " + str.tostring( asiaHCandle.highPrice ))
+
+    // Candle asiaLCandle  = SessionsMapHolder.getSessionLowestCandle(syminfo.ticker, SESSION_ASIA_KEY)
+    // log.info("Asia L -> " + str.tostring( asiaLCandle.lowPrice ))
+
+//     Session monitoredSession  = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey('ES1!', SESSION_ASIA_KEY))
+//     for sessionCycle in monitoredSession.Cycles
+//         Candle candle = sessionCycle.FirstCandle
+// //        log.info(sessionCycle.Period  + " First Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Open: " + str.format_time(candle.openTime, "HHmm", TIMEZONE_NY))
+//         candle := sessionCycle.LastCandle
+//         log.info(sessionCycle.Period  + " Last Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Close: " + str.format_time(candle.closeTime, "HHmm", TIMEZONE_NY))
     
 
-    var line  smtLine = na
-    if(detectedSmtMapHolder.size() != 0 and na(smtLine))
-        SMT detectedSmt = detectedSmtMapHolder.get('1')
 
-        log.info("F Price" + str.tostring(detectedSmt.StartCandle.low))
+
+
+    //detectTrendSmt(SmtType.Bullish)
+    
+    // for [index, candle] in candlesMapHolder.getRegisteredCandles(getSymbolMapKey('ES1!', '1'))
+    //     if index < 21
+    //         continue
+    //     log.info("Candle | O: " + str.tostring(candle.open) + " H: " + str.tostring(candle.high) + " L: " + str.tostring(candle.low) + " C: " + str.tostring(candle.close) + " BI: " + str.tostring(candle.barIndex))
+
+    // log.info('------------------- TO COMPARE -------------------------')
+    // for [index, candle] in candlesMapHolder.getLastRegisteredCandles(getSymbolMapKey('ES1!', '1'), 3)
+    //     log.info("Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex))
+
+
+    // var line  smtLine = na
+    // if(detectedSmtMapHolder.size() != 0 and na(smtLine))
+    //     SMT detectedSmt = detectedSmtMapHolder.get('TREND_SMT')
+
+        // log.info("F Price" + str.tostring(detectedSmt.StartCandle.low))
 
         // smtLine := line.new(
         //   x1=detectedSmt.StartCandle.openTime, 
@@ -394,25 +628,7 @@ if(barstate.islast  and barstate.isconfirmed ) // and isDebugEnabled
         //   xloc=xloc.bar_time, 
         //   color=color.new(color.red, 20),
         //   width=2 )
-        int offset_1 = 25
-        int offset_2 = 7
 
-    // Get the low price for the candle 25 bars ago
-        float low_25_bars_ago = low[offset_1]
-
-        // Get the low price for the candle 7 bars ago
-        float low_7_bars_ago = low[offset_2]
-
-        // smtLine := line.new(
-        //      x1 = bar_index[offset_1],
-        //      y1 = low_25_bars_ago,
-
-        //      x2 = bar_index[offset_2],
-        //      y2 = low_7_bars_ago,
-
-        //      color = color.new(color.blue, 20),
-        //      width = 2          
-        //  )
 
 
 
@@ -426,91 +642,217 @@ if(barstate.islast  and barstate.isconfirmed ) // and isDebugEnabled
 
     // //log.info( " ----- > " + str.tostring(startIndex) )
 
-    // if startIndex >= endIndex
-    //     for i = startIndex to endIndex 
-    //         //log.info(str.tostring(i))
-    //         Swing sw = arrSwings.get(i)
-    //         txt = sw.swingType == SwingType.SwingHigh ? "SH" : "SL"
-    //         col =sw.swingType == SwingType.SwingHigh ? color.green : color.red
-    //         price  = sw.swingType == SwingType.SwingHigh ? sw.swingCandle.high : sw.swingCandle.low
+// f_sort_udt_in_place = (udtArray, timeAsc, priceAsc) =>
+//     // Step 1: Build composite keys
+//     keyArray = array.new_string()
+//     for i = 0 to array.size(udtArray) - 1
+//         item = array.get(udtArray, i)
 
-    //         lbl = label.new(
-    //                  sw.swingCandle.barIndex, price, txt,
-    //                  style = sw.swingType == SwingType.SwingHigh ? label.style_label_down : label.style_label_up,
-    //                  color = color.new(col, 0),
-    //                  textcolor = color.white,
-    //                  size = size.tiny
-    //              )
+//         // === MODIFY THIS SECTION for other UDTs ===
+//         timeKey  = timeAsc  ? item.time  : -item.time
+//         priceKey = priceAsc ? item.price : -item.price
+//         // Pad for lex sort
+//         timeStr  = str.tostring(timeKey, "#010")
+//         priceStr = str.tostring(priceKey, "#010.2")
+//         compositeKey = timeStr + "_" + priceStr
+//         // === END MODIFIABLE SECTION ===
+
+//         array.push(keyArray, compositeKey)
+
+//     // Step 2: Get sorted indices
+//     sortedIndices = array.sort_indices(keyArray)
+
+//     // Step 3: Sort into a temp array
+//     tempArray = array.new<MyBar>()
+//     for i = 0 to array.size(sortedIndices) - 1
+//         idx = array.get(sortedIndices, i)
+//         array.push(tempArray, array.get(udtArray, idx))
+
+//     // Step 4: Copy sorted items back in-place
+//     for i = 0 to array.size(tempArray) - 1
+//         array.set(udtArray, i, array.get(tempArray, i))
+
+
+
+// f_findClosestSwingIndex = (array<int> swingArray, float refPrice) =>
+//     closestIndex = -1
+//     minDistance = math.inf
+
+//     for i = 0 to array.size(swingArray) - 1
+//         swing = array.get(swingArray, i)
+//         dist = math.abs(swing.price - refPrice)
+
+//         if dist < minDistance
+//             minDistance := dist
+//             closestIndex := i
+
+//             // Exit early if exact match found
+//             if dist == 0.0
+//                 break
+
+//     closestIndex
+
+// processRegisteredCandles() =>
+
+//     var arrRegisteredCandles =  array.new<Candle>() 
+
+//     for monitoredSymbol in array.from(syminfo.ticker, firstMonitoredAsset, secondMonitoredAsset)//, ARR_MONITORED_ASSETS.copy()
+//         for monitoredTimeFrame in ARR_TIME_FRAMES_TO_MONITOR
+//             if( (not barstate.isconfirmed) or (compareTimeFrames(monitoredTimeFrame, timeframe.period) < 0) )
+//                 continue
+
+//             arrRegisteredCandles :=  candlesMapHolder.getRegisteredCandles(getSymbolMapKey(monitoredSymbol, monitoredTimeFrame))
+//             //log.info("Sym -> " + monitoredSymbol + " timeframe -> " + monitoredTimeFrame + " size -> " + str.tostring(arrRegisteredCandles.size()))    
+
+//             if(arrRegisteredCandles.size() < 3)
+//                 continue
+            
+//             Candle prevCandle = arrRegisteredCandles.get(arrRegisteredCandles.size() - 3)
+//             Candle midCandle  = arrRegisteredCandles.get(arrRegisteredCandles.size() - 2)
+//             Candle nextCandle = arrRegisteredCandles.get(arrRegisteredCandles.size() - 1)
+
+
+//             // Swing High
+//             if ( (midCandle.highPrice >= prevCandle.highPrice)  and  (midCandle.highPrice >= nextCandle.highPrice)  and  (  midCandle.highPrice > prevCandle.highPrice  or  midCandle.highPrice > nextCandle.highPrice  )  ) 
+//                 swingsMapHolder.registerSwing(monitoredSymbol, monitoredTimeFrame, Swing.new(midCandle, SwingType.SwingHigh))    
+//                 //log.info("register swing H here -> " + str.tostring(SwingType.SwingHigh))     
+//                 // swHigh = createSwing(midBar.high, midBar.index, SwingType.SwingHigh)
+//                 // addOrReplaceSwing(swHigh, maxSwingsStored)
+
+//             if ( (midCandle.lowPrice <= prevCandle.lowPrice)  and  (midCandle.lowPrice <= nextCandle.lowPrice)  and  (  midCandle.lowPrice < prevCandle.lowPrice  or  midCandle.lowPrice < nextCandle.lowPrice  )  ) 
+//                 swingsMapHolder.registerSwing(monitoredSymbol, monitoredTimeFrame, Swing.new(midCandle, SwingType.SwingLow)) 
+//                 //log.info("register swing L here")     
+
+//             // swLow = createSwing(midBar.low, midBar.index, SwingType.SwingLow)
+//             // addOrReplaceSwing(swLow, maxSwingsStored)
+
+// processRegisteredCandles()
+
+
+//var map<string, SMT> detectedSmtMapHolder = map.new<string, SMT>()
+
+// ====================================================================================
+// Custom function to check if the current bar is the FIRST in a given session.
+// It returns 'true' if the current bar is in the session and the previous bar was not.
+// ====================================================================================
 
 
 
 
+// detectTrendSmt(SmtType smtType) =>
+//     // Determine swing type based on SMT type
+//     bool checkBullish = (smtType == SmtType.Bullish)
+//     SwingType swingType = checkBullish ? SwingType.SwingLow : SwingType.SwingHigh
 
+//     // Get swings for NQ and ES
+//     arrPrimarySwings   = swingsMapHolder.getRegisteredSwings(syminfo.ticker, '15', swingType)
+//     arrMonitoredSwings = swingsMapHolder.getRegisteredSwings('ES1!', '15', swingType)
 
+//     int indexA = array.size(arrPrimarySwings) - 1
+//     int indexB = array.size(arrMonitoredSwings) - 1
 
-// detectSMTsReverse(Pivot[] pivotsA, Pivot[] pivotsB, SmtType smtType) =>
-//     int indexA = array.size(pivotsA) - 1
-//     int indexB = array.size(pivotsB) - 1
+//     int allowableBarsDifference = 3
+//     int timeThreshold = allowableBarsDifference * timeframe.in_seconds('1') * 1000
 
-//     // Adaptive time threshold calculation
-//     tf_seconds = timeframe.multiplier * (
-//          timeframe.isminutes ? 60 :
-//          timeframe.ishours   ? 3600 :
-//          timeframe.isdaily   ? 86400 :
-//          604800)  // weekly fallback
+//     SMT detectedSmt = na
 
-//     // Optionally: make this adaptive
-//     allowableBarsDifference = 1
-//     timeThresholdMs = tf_seconds * allowableBarsDifference * 1000
+//     // Traverse swings from latest to earlier
+//     while indexA > 1 and indexB > 1 and na(detectedSmt)
+//         // Current and previous swings
+//         primaryCurrent    = arrPrimarySwings.get(indexA)
+//         primaryPrevious   = arrPrimarySwings.get(indexA - 1)
+//         monitoredCurrent  = arrMonitoredSwings.get(indexB)
+//         monitoredPrevious = arrMonitoredSwings.get(indexB - 1)
 
-//     SMTResult? result = na
+//         // Match timestamps within threshold
+//         timeDifference = math.abs(primaryCurrent.Candle.openTime - monitoredCurrent.Candle.openTime)
 
-//     while indexA > 0 and indexB > 0 and na(result)
-//         currA = array.get(pivotsA, indexA)
-//         prevA = array.get(pivotsA, indexA - 1)
-//         currB = array.get(pivotsB, indexB)
-//         prevB = array.get(pivotsB, indexB - 1)
+//         if timeDifference <= timeThreshold
+//             float primaryMove   = checkBullish 
+//                                   ? primaryCurrent.Candle.low - primaryPrevious.Candle.low
+//                                   : primaryCurrent.Candle.high - primaryPrevious.Candle.high
 
-//         timeA = currA.time
-//         timeB = currB.time
-//         timeDiff = math.abs(timeA - timeB)
+//             float monitoredMove = checkBullish 
+//                                   ? monitoredCurrent.Candle.low - monitoredPrevious.Candle.low
+//                                   : monitoredCurrent.Candle.high - monitoredPrevious.Candle.high
 
-//         if timeDiff <= timeThresholdMs
-//             if smtType == SmtType.Bullish
-//                 aBreaksLow = currA.price < prevA.price
-//                 bHoldsLow  = currB.price >= prevB.price  // Equal or higher low
-
-//                 if aBreaksLow and bHoldsLow
-//                     result := SMTResult.new(smtType, currA.time, currA.price, indexA, indexB)
-
-//             if smtType == SmtType.Bearish
-//                 aBreaksHigh = currA.price > prevA.price
-//                 bHoldsHigh  = currB.price <= prevB.price  // Equal or lower high
-
-//                 if aBreaksHigh and bHoldsHigh
-//                     result := SMTResult.new(smtType, currA.time, currA.price, indexA, indexB)
+//             // Check if the movement directions are opposite (SMT!)
+//             if (primaryMove * monitoredMove < 0)
+//                 // SMT detected
+//                 detectedSmt := SMT.new(smtType, primaryPrevious.Candle, primaryCurrent.Candle, true, true, na)
+//                 detectedSmtMapHolder.put('TREND_SMT', detectedSmt)
 
 //             indexA -= 1
 //             indexB -= 1
-//         else if timeA > timeB
+//         else if primaryCurrent.Candle.openTime > monitoredCurrent.Candle.openTime
 //             indexA -= 1
 //         else
 //             indexB -= 1
 
-//     result
 
 
-// var SMTResult smt = detectSMTsReverse(pivotsA, pivotsB, SmtType.Bearish)
+// detectSmt(SmtType smtType) =>
 
-// if not na(smt)
-//     if not smt.isInvalid
-//         priceBNow = close  // Or whatever price you're watching for asset B
+//     arrPrimarySwings   = swingsMapHolder.getRegisteredSwings(syminfo.ticker, '1', SwingType.SwingHigh)
+//     arrMonitoredSwings = swingsMapHolder.getRegisteredSwings('ES1!', '1', SwingType.SwingHigh)
 
-//         // Invalidate check
-//         if smt.smtType == SmtType.Bearish and priceBNow > array.get(pivotsB, smt.indexB).price
-//             smt.isInvalid := true
-//             label.delete(smt.labelId)
+//     int indexA = array.size(arrPrimarySwings) - 1
+//     int indexB = array.size(arrMonitoredSwings) - 1
 
-//         if smt.smtType == SmtType.Bullish and priceBNow < array.get(pivotsB, smt.indexB).price
-//             smt.isInvalid := true
-//             label.delete(smt.labelId)
+//     bool checkBullishSmt = (smtType == SmtType.Bullish)
+
+//     int allowableBarsDifference = 0
+
+//     int timeThreshold = allowableBarsDifference * timeframe.in_seconds('1') * 1000
+//     SMT detectedSmt = na
+
+//     log.info('------------------------Aici ------------------------------------------')
+
+//     while indexA > 0 and indexB > 0 and na(detectedSmt)
+//         primaryCurrentSwing    = arrPrimarySwings.get(indexA)
+//         primaryPreviousSwing   = arrPrimarySwings.get(indexA - 1)
+//         monitoredCurrentSwing  = arrMonitoredSwings.get(indexB)
+//         monitoredPreviousSwing = arrMonitoredSwings.get(indexB - 1)
+
+//         timeDifference = math.abs(primaryCurrentSwing.swingCandle.openTime - monitoredCurrentSwing.swingCandle.openTime)
+
+//         aBreaksLow = primaryCurrentSwing.swingCandle.low < primaryPreviousSwing.swingCandle.low
+//         bHoldsLow  = monitoredCurrentSwing.swingCandle.low >= monitoredPreviousSwing.swingCandle.low
+
+
+//         aBreaksHigh = primaryCurrentSwing.swingCandle.high > primaryPreviousSwing.swingCandle.high
+//         bHoldsHigh  = monitoredCurrentSwing.swingCandle.high <= monitoredPreviousSwing.swingCandle.high
+
+
+//         if timeDifference <= timeThreshold
+
+//             if (checkBullishSmt  and  (aBreaksLow and bHoldsLow) ) // bullish SMT detected here
+//                 detectedSmt := SMT.new(SmtType.Bullish,  primaryPreviousSwing.swingCandle, primaryCurrentSwing.swingCandle, true, true, na)
+//             else if(aBreaksHigh and bHoldsHigh) // berrish SMT detected here 
+//                 detectedSmt := SMT.new(SmtType.Bearish, primaryPreviousSwing.swingCandle, primaryCurrentSwing.swingCandle, true, true, na)
+
+//             if not na (detectedSmt)
+//                 detectedSmtMapHolder.put('TEST', detectedSmt)
+//                 log.info('------------------------ADDED ------------------------------------------')
+//                 indexA -= 1
+//                 indexB -= 1        
+//         else if ( primaryCurrentSwing.swingCandle.openTime > monitoredCurrentSwing.swingCandle.openTime )
+//             indexA -= 1
+//         else
+//             indexB -= 1
+
+//     //log.info('---------------------------------------------------------------------')
+
+
+
+// var counter_var = 0
+// varip counter_varip = 0
+
+// if close > open
+//     counter_var += 1
+//     counter_varip += 1
+
+// label.new(bar_index, high, text="var: " + str.tostring(counter_var), color=color.green, textcolor=color.white)
+// label.new(bar_index, low,  text="varip: " + str.tostring(counter_varip), color=color.red, textcolor=color.white)
+
+
