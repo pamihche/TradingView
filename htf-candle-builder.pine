@@ -216,16 +216,18 @@ method getPeriod(Session this) =>
 method isClosed(SessionCycle this) =>
     bool isClosed = (not na(this.LastCandle)) and this.LastCandle.barIndex > 0 
 
+
 method isClosed(Session this) =>
+    bool isClosed = (this.Cycles.size() == 0) ? true : this.Cycles.last().LastCandle.barIndex != 0
 
-    bool isClosed = na(this.Cycles) or this.Cycles.size() == 0
-    if not isClosed and time > timestamp(TIMEZONE_NY, year, month, dayofmonth + (( hour(time, TIMEZONE_NY) < 18 ) ? -1 : 0 ), 18, 0)
-        for sessionCycle in this.Cycles
-            isClosed := sessionCycle.isClosed()
-            if(not isClosed)
-                break
-    isClosed            
 
+
+    // if not isClosed and time > timestamp(TIMEZONE_NY, year, month, dayofmonth + (( hour(time, TIMEZONE_NY) < 18 ) ? -1 : 0 ), 18, 0)
+    //     for sessionCycle in this.Cycles
+    //         isClosed := sessionCycle.isClosed()
+    //         if(not isClosed)
+    //             break
+    // isClosed            
 
 method setPrices(Candle this, float openPrice = open, float highPrice = high, float lowPrice = low, float closePrice = close) =>
     this.openPrice  := openPrice
@@ -441,22 +443,13 @@ method handleSessions(map<string, Session> this) =>
     for monitoredSymbol in _AllMonitoredAssets
         for sessionKey in ARR_SESSIONS_KEYS
             Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
-            if(na(registeredSession))
+            if(na(registeredSession) or registeredSession.isClosed())
                 continue
-
-            if na(registeredSession) or registeredSession.isClosed()
-                continue  
-            // if(not registeredSession.isActive())    
-            //     continue
-            //log.info("Updating " + sessionKey)
-
 
             Candle lastRegisteredCandle = candlesMapHolder.getLastRegisteredCandle(getSymbolMapKey(monitoredSymbol, timeframe.period))
 
             if(na(lastRegisteredCandle))
                 continue
-
-            //log.info(str.tostring(registeredSession.Cycles.size()))    
 
             registeredSession.registerCandle(lastRegisteredCandle, monitoredSymbol)
             this.put(this.getAssetSessionKey(monitoredSymbol, sessionKey), registeredSession)
@@ -639,13 +632,9 @@ registerOtherAssetsCandlesHistory() =>
 
 registerOtherAssetsCandlesHistory()
 
-
-
 startMonitoringRegisteredAssets() => 
 
-    //if(not barstate.isrealtime)
     SessionsMapHolder.handleSessions()
-
 
 startMonitoringRegisteredAssets()
 
@@ -661,7 +650,7 @@ if(  barstate.isconfirmed ) // barstate.islast   and and isDebugEnabled.   and b
     //         log.info(sessionKey + " Cycle -> " + cycle.Period  + " " +str.tostring(cycle.isClosed()) + "  BI: " + str.tostring(cycle.LastCandle.closePrice) )
               
 
-    Session monitoredSession  = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey('NQ1!', SESSION_NY_PM_KEY))
+    Session monitoredSession  = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey('YM1!', SESSION_NY_PM_KEY))
 
     if( na(monitoredSession) or na(monitoredSession.Cycles))
         log.info('este NA')
