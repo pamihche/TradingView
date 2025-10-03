@@ -3,6 +3,7 @@ indicator("Advanced HTF Candle Builder", overlay=true, max_bars_back = 5000)
 
 // -- CONSTANTS --
 
+
 //const string 
 const string TIMEZONE_NY = "America/New_York"
 // const string SESSION_ASIA = "1800-0230"
@@ -35,9 +36,7 @@ const string[] ARR_TIME_FRAMES_TO_MONITOR = array.from(
 var string firstMonitoredAsset   = 'ES1!'
 var string secondMonitoredAsset  = 'YM1!'
 
-//var string[] arrMonitoredSymbols = array.from('ES1!', 'YM1!')
-
-var string[] ARR_MONITORED_ASSETS = array.from('ES1!') //, 'YM1!'
+var string[] ARR_MONITORED_ASSETS = array.from('ES1!', 'YM1!') //, 
 
 
 // isTimestampBetween(ts, sh, sm, eh, em, timezone) =>
@@ -315,9 +314,11 @@ method getDeepInstance(Session this) =>
     newSession.Cycles := array.new<SessionCycle>()
     for [index, originalCycle] in this.Cycles
         newCycle = SessionCycle.new(Key = originalCycle.Key, Name = originalCycle.Name, Period = originalCycle.Period, FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new())
+
         y = year(time, TIMEZONE_NY)
         m = month(time, TIMEZONE_NY)
         d = dayofmonth(time, TIMEZONE_NY)
+        h = hour(time, TIMEZONE_NY) 
         parts = str.split(newCycle.Period, "-")
         startStr = array.get(parts, 0)
         endStr   = array.get(parts, 1)
@@ -326,11 +327,22 @@ method getDeepInstance(Session this) =>
         eh = int(str.tonumber(str.substring(endStr, 0, 2)))
         em = int(str.tonumber(str.substring(endStr, 2)))
         crossMidnight = (eh < sh) or (eh == sh and em < sm)
-        newCycle.StartTimeStamp := timestamp(TIMEZONE_NY, y, m, d, sh, sm)
-        newCycle.EndTimeStamp   := timestamp(TIMEZONE_NY, y, m, crossMidnight ? d + 1 : d, eh, em)
+        anchorHour = 18    
+        anchorTs = timestamp(TIMEZONE_NY, y, m, d, anchorHour, 0)
+        anchorTs := time < anchorTs ? timestamp(TIMEZONE_NY, y, m, d - 1, anchorHour, 0) : anchorTs
+        ay = year(anchorTs, TIMEZONE_NY)
+        am = month(anchorTs, TIMEZONE_NY)
+        ad = dayofmonth(anchorTs, TIMEZONE_NY)
+
+        sessionStartsTomorrow = sh < anchorHour
+        startDay = ad + (sessionStartsTomorrow ? 1 : 0)
+        endDay   = startDay + (crossMidnight ? 1 : 0)
+
+        newCycle.StartTimeStamp := timestamp(TIMEZONE_NY, ay, am, startDay, sh, sm) //timestamp(TIMEZONE_NY, ay, am, ad, sh, sm) //timestamp(TIMEZONE_NY, y, m, d, sh, sm)
+        newCycle.EndTimeStamp   := timestamp(TIMEZONE_NY, ay, am, endDay, eh, em) //timestamp(TIMEZONE_NY, ay, am, ad + (crossMidnight ? 1 : 0), eh, em) //timestamp(TIMEZONE_NY, y, m, crossMidnight ? d + 1 : d, eh, em)
 
         newSession.Cycles.push(newCycle)
-    newSession
+    newSession.copy()
 
 method registerCandle(Session this, Candle newCandle, string monitoredSymbol) =>
 
@@ -347,8 +359,6 @@ method registerCandle(Session this, Candle newCandle, string monitoredSymbol) =>
         bool isInPeriod      = newCandle.openTime >= sessionCycle.StartTimeStamp and newCandle.closeTime <= sessionCycle.EndTimeStamp
         bool isFirstInPeriod = newCandle.openTime  == sessionCycle.StartTimeStamp
         bool isLastInPeriod  = newCandle.closeTime == sessionCycle.EndTimeStamp
-
-        //[isInSession, isFirst, isLast] = isFirstOrLastCandleInSession(newCandle.openTime, newCandle.closeTime, sessionCycle.Period, TIMEZONE_NY)
 
         if( not isInPeriod )
             continue
@@ -381,7 +391,11 @@ method getAssetSessionKey(map<string, Session> this, string monitoredSymbol, str
 
 method handleSessions(map<string, Session> this) =>
 
+    var _AllMonitoredAssets = array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS) // tine-l aici!!! Array.concat is crashing on for in 
+
     if( ( isNewTradingDay()) )
+
+        SessionsMapHolder.clear()
 
         AsiaSession = Session.new(SESSION_ASIA_KEY, 'Asia', array.from(
              SessionCycle.new("SESSION_ASIA_1", 'C1', "1800-1900"),
@@ -410,26 +424,39 @@ method handleSessions(map<string, Session> this) =>
              SessionCycle.new("SESSION_NY_PM_3", 'C1', "1430-1600")
          ))
 
-        for monitoredSymbol in array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+        // for monitoredSymbol in array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+        //     this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_ASIA_KEY),   AsiaSession.getDeepInstance())
+        //     this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_LONDON_KEY), LondonSession.getDeepInstance())
+        //     //this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_AM_KEY),  NYAMSession.getDeepInstance().copy())
+        //     this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_PM_KEY),  NYPMSession.getDeepInstance())
+
+        //allMonitoredAssets = array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+
+        for monitoredSymbol in _AllMonitoredAssets
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_ASIA_KEY),   AsiaSession.getDeepInstance())
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_LONDON_KEY), LondonSession.getDeepInstance())
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_AM_KEY),  NYAMSession.getDeepInstance())
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_PM_KEY),  NYPMSession.getDeepInstance())
 
-    for monitoredSymbol in array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+    for monitoredSymbol in _AllMonitoredAssets
         for sessionKey in ARR_SESSIONS_KEYS
             Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
             if(na(registeredSession))
                 continue
-            // if na(registeredSession) or registeredSession.isClosed()
-            //     continue  
+
+            if na(registeredSession) or registeredSession.isClosed()
+                continue  
             // if(not registeredSession.isActive())    
             //     continue
-            //log.info("Registering for " + sessionKey)
+            //log.info("Updating " + sessionKey)
+
+
             Candle lastRegisteredCandle = candlesMapHolder.getLastRegisteredCandle(getSymbolMapKey(monitoredSymbol, timeframe.period))
 
             if(na(lastRegisteredCandle))
                 continue
+
+            //log.info(str.tostring(registeredSession.Cycles.size()))    
 
             registeredSession.registerCandle(lastRegisteredCandle, monitoredSymbol)
             this.put(this.getAssetSessionKey(monitoredSymbol, sessionKey), registeredSession)
@@ -616,13 +643,14 @@ registerOtherAssetsCandlesHistory()
 
 startMonitoringRegisteredAssets() => 
 
+    //if(not barstate.isrealtime)
     SessionsMapHolder.handleSessions()
 
 
 startMonitoringRegisteredAssets()
 
 
-if( barstate.islast ) // barstate.islast   and and isDebugEnabled.   and barstate.isconfirmed //d  and isDebugEnabled
+if(  barstate.isconfirmed ) // barstate.islast   and and isDebugEnabled.   and barstate.isconfirmed //d  and isDebugEnabled
     
     log.info('------------------- HERE -------------------------')
 
@@ -633,23 +661,18 @@ if( barstate.islast ) // barstate.islast   and and isDebugEnabled.   and barstat
     //         log.info(sessionKey + " Cycle -> " + cycle.Period  + " " +str.tostring(cycle.isClosed()) + "  BI: " + str.tostring(cycle.LastCandle.closePrice) )
               
 
+    Session monitoredSession  = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey('NQ1!', SESSION_NY_PM_KEY))
 
-    Session monitoredSession  = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey('NQ1!', SESSION_ASIA_KEY))
-    //log.info("Asia L -> " + str.tostring( na(monitoredSession.Cycles )))
-
-
-
-    for [index, sessionCycle] in monitoredSession.Cycles
-        if( index != 1)
-            continue
-
-        Candle candle = sessionCycle.FirstCandle
-        log.info(sessionCycle.Period  + " First Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Open: " + str.format_time(candle.openTime, "HH:mm", TIMEZONE_NY) + " Close: " + str.format_time(candle.closeTime, "HH:mm", TIMEZONE_NY))
-        candle := sessionCycle.LastCandle
-        log.info(sessionCycle.Period  + " Last Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Open: " + str.format_time(candle.openTime, "HH:mm", TIMEZONE_NY) + " Close: " + str.format_time(candle.closeTime, "HH:mm", TIMEZONE_NY))
-
-
-
+    if( na(monitoredSession) or na(monitoredSession.Cycles))
+        log.info('este NA')
+    else
+        for [index, sessionCycle] in monitoredSession.Cycles
+            Candle candle = sessionCycle.FirstCandle
+            if(na(candle))
+                log.info('dfghsfg')    
+            log.info(sessionCycle.Period  + " First Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Open: " + str.format_time(candle.openTime, "HH:mm", TIMEZONE_NY) + " Close: " + str.format_time(candle.closeTime, "HH:mm", TIMEZONE_NY))
+            candle := sessionCycle.LastCandle
+            log.info(sessionCycle.Period  + " Last Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Open: " + str.format_time(candle.openTime, "HH:mm", TIMEZONE_NY) + " Close: " + str.format_time(candle.closeTime, "HH:mm", TIMEZONE_NY))
 
 
 
