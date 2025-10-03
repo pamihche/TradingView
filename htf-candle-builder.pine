@@ -40,20 +40,58 @@ var string secondMonitoredAsset  = 'YM1!'
 var string[] ARR_MONITORED_ASSETS = array.from('ES1!') //, 'YM1!'
 
 
-isTimestampBetween(ts, sh, sm, eh, em, timezone) =>
-    // Extract the reference date from the timestamp
-    y = year(ts, timezone)
-    m = month(ts, timezone)
-    d = dayofmonth(ts, timezone)
-    // Build start and end timestamps
-    startTs = timestamp(timezone, y, m, d, sh, sm)
-    // Determine if this is a cross-midnight interval
-    crossMidnight = (eh < sh) or (eh == sh and em < sm)
-    // If crossing midnight, end is on the next calendar day
-    endTs = crossMidnight ? timestamp(timezone, y, m, d + 1, eh, em) : timestamp(timezone, y, m, d, eh, em)
+// isTimestampBetween(ts, sh, sm, eh, em, timezone) =>
+//     // Extract the reference date from the timestamp
+//     y = year(ts, timezone)
+//     m = month(ts, timezone)
+//     d = dayofmonth(ts, timezone)
+//     // Build start and end timestamps
+//     startTs = timestamp(timezone, y, m, d, sh, sm)
+//     // Determine if this is a cross-midnight interval
+//     crossMidnight = (eh < sh) or (eh == sh and em < sm)
+//     // If crossing midnight, end is on the next calendar day
+//     endTs = crossMidnight ? timestamp(timezone, y, m, d + 1, eh, em) : timestamp(timezone, y, m, d, eh, em)
 
-    // Check if given timestamp falls inside the range
-    crossMidnight ? (ts >= startTs or ts <= endTs) : (ts >= startTs and ts <= endTs)
+//     // Check if given timestamp falls inside the range
+//     crossMidnight ? (ts >= startTs or ts <= endTs) : (ts >= startTs and ts <= endTs)
+
+
+isFirstOrLastCandleInSession(openTs, closeTs, sessionStr, timezone) =>
+    sessionParts = str.split(sessionStr, "-")
+
+    startStr = array.get(sessionParts, 0)
+    endStr   = array.get(sessionParts, 1)
+
+    sh = int(str.tonumber(str.substring(startStr, 0, 2)))
+    sm = int(str.tonumber(str.substring(startStr, 2)))
+    eh = int(str.tonumber(str.substring(endStr, 0, 2)))
+    em = int(str.tonumber(str.substring(endStr, 2)))
+
+
+    //log.info(sessionStr + "to -> " + str.tostring(sh) + " " + str.tostring(sm) + " " + str.tostring(eh) + " " + str.tostring(em) + " ")
+
+
+    y = year(openTs, timezone)
+    m = month(openTs, timezone)
+    d = dayofmonth(openTs, timezone)
+
+    crossMidnight = (eh < sh) or (eh == sh and em < sm)
+
+    sessionStart = timestamp(timezone, y, m, d, sh, sm)
+    sessionEnd = crossMidnight
+         ? timestamp(timezone, y, m, d, eh, em) + 24 * 60 * 60 * 1000
+         : timestamp(timezone, y, m, d, eh, em)
+
+    sameTime = sh == eh and sm == em
+    isInSession = sameTime ? true : (openTs >= sessionStart and closeTs <= sessionEnd)
+    isFirst = openTs == sessionStart
+    isLast = closeTs == sessionEnd
+
+    //[false, false, false ]
+
+    [isInSession, isFirst, isLast]
+
+
 
 compareTimeFrames(string timeFrame1, string timeFrame2) =>
     sec1 = timeframe.in_seconds(timeFrame1)
@@ -93,12 +131,7 @@ higherTimeFrameHasChanged(string higherTimeFrame) =>
         "12M" => timeframe.change('12M')
         => false
 
-
-
-
 // -- DATA STRUCTURES --
-
-
 
 
 
@@ -124,6 +157,8 @@ type SessionCycle
     string Key  = na
     string Name = na
     string Period = na
+    int StartTimeStamp = na
+    int EndTimeStamp = na
     Candle FirstCandle = na
     Candle LastCandle = na
     Candle HighestCandle = na
@@ -271,38 +306,49 @@ method getLastRegisteredCandles(map<string, CandlesList>this, string symbolKey, 
 
 method getLastRegisteredCandle(map<string, CandlesList>this, string symbolKey) => 
     CandlesList arrCandlesList = this.get(symbolKey)
-    Candle lastRegisteredCandle = not na(arrCandlesList) and arrCandlesList.arrCandles.size() > 0 ?  arrCandlesList.arrCandles.last() : na
-    lastRegisteredCandle
+    Candle lastRegisteredCandle = not na(arrCandlesList) and arrCandlesList.arrCandles.size() > 0 ?  arrCandlesList.arrCandles.last().copy() : na
+    //lastRegisteredCandle
 
 
 method getDeepCopy(Session this) =>
     Session newSession = Session.new(this.Key, this.Name)
     newSession.Cycles := array.new<SessionCycle>()
+
+
     for [index, originalCycle] in this.Cycles
         newCycle = SessionCycle.new(Key = originalCycle.Key, Name = originalCycle.Name, Period = originalCycle.Period, FirstCandle = originalCycle.FirstCandle.copy(), LastCandle = originalCycle.LastCandle.copy(), HighestCandle = originalCycle.HighestCandle.copy(), LowestCandle = originalCycle.LowestCandle.copy())
+        
+
+
         newSession.Cycles.push(newCycle)
     newSession
 
 method registerCandle(Session this, Candle newCandle, string monitoredSymbol) =>
 
     for i = this.Cycles.size() - 1 to 0
-        if(newCandle.barIndex == 0)
-            break
-
+       
         SessionCycle sessionCycle =  this.Cycles.get(i)
+
+        if( (newCandle.barIndex == 0) or (newCandle.barIndex == sessionCycle.FirstCandle.barIndex) or (newCandle.barIndex == sessionCycle.LastCandle.barIndex) or  (newCandle.barIndex == sessionCycle.HighestCandle.barIndex) or  (newCandle.barIndex == sessionCycle.LowestCandle.barIndex)  )
+            break
 
         if(sessionCycle.isClosed())
             continue
 
-        if( sessionCycle.FirstCandle.barIndex == 0)    //and newCandle.isFirstInPeriod(sessionCycle.Period)
+        [isInSession, isFirst, isLast] = isFirstOrLastCandleInSession(newCandle.openTime, newCandle.closeTime, sessionCycle.Period, TIMEZONE_NY)
+
+        if( not isInSession )
+            continue
+
+        if( isFirst )    //and newCandle.isFirstInPeriod(sessionCycle.Period)
             sessionCycle.FirstCandle   := newCandle.copy()
             sessionCycle.HighestCandle := newCandle.copy()
             sessionCycle.LowestCandle  := newCandle.copy()
             this.Cycles.set(i, sessionCycle)
             break
 
-        if(newCandle.isLastInPeriod(sessionCycle.Period, monitoredSymbol))
-            sessionCycle.LastCandle    := newCandle.copy()
+        if( isLast )
+            sessionCycle.LastCandle := newCandle.copy()
 
         if( sessionCycle.HighestCandle.highPrice <= newCandle.highPrice )
             sessionCycle.HighestCandle := newCandle.copy()
@@ -322,7 +368,7 @@ method getAssetSessionKey(map<string, Session> this, string monitoredSymbol, str
 
 method handleSessions(map<string, Session> this) =>
 
-    if( (barstate.isnew and isNewTradingDay()) )
+    if( ( isNewTradingDay()) )
 
         AsiaSession = Session.new(SESSION_ASIA_KEY, 'Asia', array.from(
              SessionCycle.new("SESSION_ASIA_1", 'C1', "1800-1900", FirstCandle = Candle.new(), LastCandle = Candle.new(), HighestCandle = Candle.new(), LowestCandle = Candle.new()),
@@ -357,22 +403,23 @@ method handleSessions(map<string, Session> this) =>
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_AM_KEY),  NYAMSession.getDeepCopy())
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_PM_KEY),  NYPMSession.getDeepCopy())
 
+    for monitoredSymbol in array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+        for sessionKey in ARR_SESSIONS_KEYS
+            Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
+            if(na(registeredSession))
+                continue
+            // if na(registeredSession) or registeredSession.isClosed()
+            //     continue  
+            // if(not registeredSession.isActive())    
+            //     continue
+            //log.info("Registering for " + sessionKey)
+            Candle lastRegisteredCandle = candlesMapHolder.getLastRegisteredCandle(getSymbolMapKey(monitoredSymbol, timeframe.period))
 
-    if (this.size() > 0)
+            if(na(lastRegisteredCandle))
+                continue
 
-        for monitoredSymbol  in array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
-            for sessionKey in ARR_SESSIONS_KEYS
-
-                Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
-                if na(registeredSession) or registeredSession.isClosed()
-                    continue  
-                // if(not registeredSession.isActive())    
-                //     continue
-
-                Candle lastRegisteredCandle = candlesMapHolder.getLastRegisteredCandle(getSymbolMapKey(monitoredSymbol, timeframe.period))
-                if(not na(lastRegisteredCandle))
-                    registeredSession.registerCandle(lastRegisteredCandle, monitoredSymbol)
-                    this.put(this.getAssetSessionKey(monitoredSymbol, sessionKey), registeredSession)
+            registeredSession.registerCandle(lastRegisteredCandle, monitoredSymbol)
+            this.put(this.getAssetSessionKey(monitoredSymbol, sessionKey), registeredSession)
    
 method getSessionHighestCandle(map<string, Session> this, string monitoredSymbol, string sessionKey) =>
     Candle highestCandle = Candle.new()
@@ -400,7 +447,6 @@ initializeRealTimeCandles() =>
     MainAssetCandle.setBarIndex()
     MainAssetCandle.setPrices()
     MainAssetCandle.setOpenCloseTime()
-
 
     if not na(firstMonitoredAsset) and str.length(str.trim(firstMonitoredAsset)) != 0
         [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(firstMonitoredAsset), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
@@ -549,7 +595,7 @@ registerOtherAssetsCandlesHistory() =>
 
             otherAssetCandle := Candle.new(o, h, l, c, ot, ct, bi)
             if(not na(otherAssetCandle.barIndex) and otherAssetCandle.hasAllPrices())
-                candlesMapHolder.registerCandle(getSymbolMapKey(monitoredSymbol, monitoredTimeFrame), otherAssetCandle)
+                candlesMapHolder.registerCandle(getSymbolMapKey(monitoredSymbol, monitoredTimeFrame), otherAssetCandle.copy())
 
 registerOtherAssetsCandlesHistory()
 
@@ -563,9 +609,36 @@ startMonitoringRegisteredAssets() =>
 startMonitoringRegisteredAssets()
 
 
-if( barstate.isconfirmed ) // barstate.islast   and and isDebugEnabled.   and barstate.isconfirmed //d  and isDebugEnabled
+if( barstate.islast ) // barstate.islast   and and isDebugEnabled.   and barstate.isconfirmed //d  and isDebugEnabled
     
     log.info('------------------- HERE -------------------------')
+
+//    for monitoredSymbol  in array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+    // for sessionKey in ARR_SESSIONS_KEYS
+    //     Session registeredSession = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey('NQ1!', sessionKey))
+    //     for cycle in registeredSession.Cycles
+    //         log.info(sessionKey + " Cycle -> " + cycle.Period  + " " +str.tostring(cycle.isClosed()) + "  BI: " + str.tostring(cycle.LastCandle.closePrice) )
+              
+
+
+    Session monitoredSession  = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey('NQ1!', SESSION_ASIA_KEY))
+    //log.info("Asia L -> " + str.tostring( na(monitoredSession.Cycles )))
+
+
+
+    for [index, sessionCycle] in monitoredSession.Cycles
+        if( index != 1)
+            continue
+
+        Candle candle = sessionCycle.FirstCandle
+        log.info(sessionCycle.Period  + " First Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Open: " + str.format_time(candle.openTime, "HH:mm", TIMEZONE_NY) + " Close: " + str.format_time(candle.closeTime, "HH:mm", TIMEZONE_NY))
+        candle := sessionCycle.LastCandle
+        log.info(sessionCycle.Period  + " Last Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Open: " + str.format_time(candle.openTime, "HH:mm", TIMEZONE_NY) + " Close: " + str.format_time(candle.closeTime, "HH:mm", TIMEZONE_NY))
+
+
+
+
+
 
     // for candle in candlesMapHolder.getLastRegisteredCandles(getSymbolMapKey('ES1!', timeframe.period), 1)
 
@@ -585,18 +658,22 @@ if( barstate.isconfirmed ) // barstate.islast   and and isDebugEnabled.   and ba
 //    log.info('Adii -> ' + str.tostring(SessionsMapHolder.size()))
 
 
-    Candle asiaHCandle  = SessionsMapHolder.getSessionHighestCandle(syminfo.ticker, SESSION_ASIA_KEY)
-    log.info("Asia H -> " + str.tostring( asiaHCandle.highPrice ))
+    // Candle asiaHCandle  = SessionsMapHolder.getSessionHighestCandle(syminfo.ticker, SESSION_ASIA_KEY)
+    // log.info("Asia H -> " + str.tostring( asiaHCandle.highPrice ))
+
+
+
+    // for sessionKey in ARR_SESSIONS_KEYS 
+    //     registeredSession = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey(syminfo.ticker, sessionKey))
+    //     if not na (registeredSession) 
+
+
 
     // Candle asiaLCandle  = SessionsMapHolder.getSessionLowestCandle(syminfo.ticker, SESSION_ASIA_KEY)
     // log.info("Asia L -> " + str.tostring( asiaLCandle.lowPrice ))
 
-//     Session monitoredSession  = SessionsMapHolder.get(SessionsMapHolder.getAssetSessionKey('ES1!', SESSION_ASIA_KEY))
-//     for sessionCycle in monitoredSession.Cycles
-//         Candle candle = sessionCycle.FirstCandle
-// //        log.info(sessionCycle.Period  + " First Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Open: " + str.format_time(candle.openTime, "HHmm", TIMEZONE_NY))
-//         candle := sessionCycle.LastCandle
-//         log.info(sessionCycle.Period  + " Last Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " BI: " + str.tostring(candle.barIndex) + " Close: " + str.format_time(candle.closeTime, "HHmm", TIMEZONE_NY))
+
+
     
 
 
