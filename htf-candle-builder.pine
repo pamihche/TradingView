@@ -22,6 +22,7 @@ const string[] ARR_TIME_FRAMES_TO_MONITOR = array.from(
              '1M',
              '1W',
              '1D',
+             "360",             
              "240", 
              "90", 
              "60", 
@@ -35,9 +36,12 @@ const string[] ARR_TIME_FRAMES_TO_MONITOR = array.from(
 var string firstMonitoredAsset   = 'ES1!'
 var string secondMonitoredAsset  = 'YM1!'
 
-var string[] ARR_MONITORED_ASSETS = array.from('ES1!', 'YM1!') //, 
+const string[] ARR_MONITORED_ASSETS = array.from(firstMonitoredAsset, secondMonitoredAsset) //, 
+const string[] ARR_COMBINED_MONITORED_ASSETS  =  array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
 
-
+isNewTradingDay() =>
+    timeframe.change('1D')
+    
 compareTimeFrames(string timeFrame1, string timeFrame2) =>
     sec1   = timeframe.in_seconds(timeFrame1)
     sec2   = timeframe.in_seconds(timeFrame2)
@@ -52,6 +56,7 @@ getSymbolTickerId(string symbol) =>
 
 higherTimeFrameHasChanged(string higherTimeFrame) => 
     switch higherTimeFrame
+        "360" => timeframe.change('360')
         "240" => timeframe.change('240')
         "90"  => timeframe.change('90')
         "60"  => timeframe.change('60')
@@ -107,7 +112,7 @@ type CandlesList
 var map<string, CandlesList> CandlesMapHolder = map.new<string, CandlesList>()
 var map<string, Session> SessionsMapHolder = map.new<string, Session>()
 
-var Candle MainAssetCandle    = Candle.new()
+var Candle MainAssetCandle    = Candle.new()  
 var Candle SecondAssetCandle  = Candle.new()
 var Candle ThirdAssetCandle   = Candle.new()
 
@@ -121,7 +126,7 @@ method isClosed(SessionCycle this) =>
     bool isClosed = (not na(this.LastCandle)) and this.LastCandle.barIndex > 0 
 
 method isClosed(Session this) =>
-    bool isClosed = (this.Cycles.size() == 0) ? true : this.Cycles.last().LastCandle.barIndex != 0
+    bool isClosed = (na(this.Cycles) or this.Cycles.size() == 0) ? true : this.Cycles.last().LastCandle.barIndex != 0
 
 method setPrices(Candle this, float openPrice = open, float highPrice = high, float lowPrice = low, float closePrice = close) =>
     this.openPrice  := openPrice
@@ -272,13 +277,9 @@ method registerCandle(Session this, Candle newCandle, string monitoredSymbol) =>
 method getAssetSessionKey(map<string, Session> this, string monitoredSymbol, string sessionKey) =>
     not(na(this)) ? monitoredSymbol + '-'+ sessionKey : ''
 
-
-
 method handleSessions(map<string, Session> this) =>
 
-    var _AllMonitoredAssets = array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS) // tine-l aici!!! Array.concat is crashing on for in 
-
-    if( timeframe.change('1D') )
+    if( isNewTradingDay() )
 
         SessionsMapHolder.clear()
 
@@ -309,15 +310,16 @@ method handleSessions(map<string, Session> this) =>
              SessionCycle.new("SESSION_NY_PM_3", 'C1', "1430-1600")
          ))
 
-        for monitoredSymbol in _AllMonitoredAssets
+        for monitoredSymbol in ARR_COMBINED_MONITORED_ASSETS
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_ASIA_KEY),   AsiaSession.getDeepInstance())
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_LONDON_KEY), LondonSession.getDeepInstance())
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_AM_KEY),  NYAMSession.getDeepInstance())
             this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_PM_KEY),  NYPMSession.getDeepInstance())
 
-    for monitoredSymbol in _AllMonitoredAssets
+    for monitoredSymbol in ARR_COMBINED_MONITORED_ASSETS
         for sessionKey in ARR_SESSIONS_KEYS
-            Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
+            string assetSessionKey = this.getAssetSessionKey(monitoredSymbol, sessionKey)
+            Session registeredSession = this.get(assetSessionKey)
             if(na(registeredSession) or registeredSession.isClosed())
                 continue
 
@@ -327,28 +329,47 @@ method handleSessions(map<string, Session> this) =>
                 continue
 
             registeredSession.registerCandle(lastRegisteredCandle, monitoredSymbol)
-            this.put(this.getAssetSessionKey(monitoredSymbol, sessionKey), registeredSession)
+            this.put(assetSessionKey, registeredSession)
    
 method getSessionHighestCandle(map<string, Session> this, string monitoredSymbol, string sessionKey) =>
-    Candle highestCandle = Candle.new()
-    Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
-    if not na(registeredSession) and not na(registeredSession.Cycles) and registeredSession.Cycles.size() > 0
-        for sessionCycle in registeredSession.Cycles
-            if sessionCycle.HighestCandle.highPrice > highestCandle.highPrice
-                highestCandle := sessionCycle.HighestCandle
+    var map<string, Candle> cacheMap = map.new<string, Candle>()
+    if(isNewTradingDay())
+        cacheMap.clear()
 
-    highestCandle.copy()
+    string sessionAssetKey    = this.getAssetSessionKey(monitoredSymbol, sessionKey)
+    Candle highestCandle      = cacheMap.get(sessionAssetKey) // I am using same key here
+    if( na(highestCandle) )
+        Session registeredSession = this.get(sessionAssetKey)
+        if not na(registeredSession) and not na(registeredSession.Cycles) and registeredSession.Cycles.size() > 0 and registeredSession.isClosed()
+            for sessionCycle in registeredSession.Cycles
+                if na(highestCandle) or sessionCycle.HighestCandle.highPrice >= highestCandle.highPrice
+                    highestCandle := sessionCycle.HighestCandle
+
+        if( not na(highestCandle)  and  highestCandle.barIndex != 0)
+            cacheMap.put(sessionAssetKey, highestCandle.copy())
+
+    highestCandle
 
 method getSessionLowestCandle(map<string, Session> this, string monitoredSymbol, string sessionKey) =>
-    Candle lowestCandle = Candle.new(lowPrice = 1000000)
-    Session registeredSession = this.get(this.getAssetSessionKey(monitoredSymbol, sessionKey))
-    if not na(registeredSession) and not na(registeredSession.Cycles) and registeredSession.Cycles.size() > 0
-        for sessionCycle in registeredSession.Cycles
-            if sessionCycle.LowestCandle.lowPrice > 0 and sessionCycle.LowestCandle.lowPrice < lowestCandle.lowPrice
-                lowestCandle := sessionCycle.LowestCandle
-                
-    lowestCandle.barIndex == 0 ?  Candle.new() : lowestCandle.copy()
+    
+    var map<string, Candle> cacheMap = map.new<string, Candle>()
+    if(isNewTradingDay())
+        cacheMap.clear()
 
+    string sessionAssetKey =  this.getAssetSessionKey(monitoredSymbol, sessionKey)
+    Candle lowestCandle    = cacheMap.get(sessionAssetKey) // I am using same key here
+
+    if (na(lowestCandle))
+        Session registeredSession = this.get(sessionAssetKey)
+        if not na(registeredSession) and not na(registeredSession.Cycles) and registeredSession.Cycles.size() > 0 and registeredSession.isClosed()
+            for sessionCycle in registeredSession.Cycles
+                if na(lowestCandle) or sessionCycle.LowestCandle.lowPrice <= lowestCandle.lowPrice
+                    lowestCandle := sessionCycle.LowestCandle
+
+        if(not na(lowestCandle) and lowestCandle.barIndex != 0)
+            cacheMap.put(sessionAssetKey, lowestCandle.copy())
+    
+    lowestCandle
 
 initializeRealTimeCandles() =>
 
@@ -356,14 +377,14 @@ initializeRealTimeCandles() =>
     MainAssetCandle.setPrices()
     MainAssetCandle.setOpenCloseTime()
 
-    if not na(firstMonitoredAsset) and str.length(str.trim(firstMonitoredAsset)) != 0
-        [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(firstMonitoredAsset), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
+    if true //not na(firstMonitoredAsset) and str.length(str.trim(firstMonitoredAsset)) != 0
+        [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(ARR_MONITORED_ASSETS.get(0)), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
         SecondAssetCandle.setBarIndex(nz(bi))
         SecondAssetCandle.setOpenCloseTime(nz(ot), nz(ct))
         SecondAssetCandle.setPrices(nz(o), nz(h), nz(l), nz(c))
         
-    if not na(secondMonitoredAsset) and str.length(str.trim(secondMonitoredAsset)) != 0
-        [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(secondMonitoredAsset), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
+    if true //not na(secondMonitoredAsset) and str.length(str.trim(secondMonitoredAsset)) != 0
+        [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(ARR_MONITORED_ASSETS.get(1)), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
         ThirdAssetCandle.setBarIndex(nz(bi))
         ThirdAssetCandle.setOpenCloseTime(nz(ot), nz(ct))
         ThirdAssetCandle.setPrices(nz(o), nz(h), nz(l), nz(c))
@@ -372,12 +393,12 @@ initializeRealTimeCandles()
 
 method registerCandle(map<string, CandlesList>this, string symbolKey, Candle candle) => 
     
-    const int maxCandlesToKeep  = 24
+    const int maxCandlesToKeep  = 48
     
     CandlesList arrCandlesList  = this.contains(symbolKey) ? this.get(symbolKey) : CandlesList.new(array.new<Candle>())
     Candle lastRegisteredCandle = arrCandlesList.arrCandles.size() > 0 ?  arrCandlesList.arrCandles.last() : na
 
-    bool canRegisterNewCandle  = (not na(lastRegisteredCandle)) ? candle.barIndex != lastRegisteredCandle.barIndex : true
+    bool canRegisterNewCandle  = (not na(lastRegisteredCandle)) ? candle.barIndex > 0 and candle.barIndex != lastRegisteredCandle.barIndex : candle.barIndex > 0
     if ( canRegisterNewCandle )
         arrCandlesList.arrCandles.push(candle)
 
@@ -386,8 +407,6 @@ method registerCandle(map<string, CandlesList>this, string symbolKey, Candle can
         
     this.put(symbolKey, arrCandlesList)
     
-
-
 registerCandlesHistory() =>
 
     var map<string, Candle> tempCandlesMapHolder = map.new<string, Candle>()
@@ -454,20 +473,225 @@ registerOtherAssetsCandlesHistory() =>
 
 registerOtherAssetsCandlesHistory()
 
-startMonitoringRegisteredAssets() => 
 
+
+enum SmtType
+    TimeBasedBullish    = 'TBU'
+    TimeBasedBearish    = 'TBE'
+    SessionBasedBullish = 'SBU'
+    SessionBasedBearish = 'SBE'
+    CycleBasedBullish   = 'CBU'
+    CycleBasedBearish   = 'CBE'
+
+var map<SmtType, string> SmtTypeToString = map.new<SmtType, string>()
+
+initSmtTypeMap() => // Initialize map in function. Only way to avoid The function str.tostring should be called on each calculation for consistency
+    SmtTypeToString.put(SmtType.TimeBasedBullish,    str.tostring(SmtType.TimeBasedBullish))
+    SmtTypeToString.put(SmtType.TimeBasedBearish,    str.tostring(SmtType.TimeBasedBearish))
+    SmtTypeToString.put(SmtType.SessionBasedBullish, str.tostring(SmtType.SessionBasedBullish))
+    SmtTypeToString.put(SmtType.SessionBasedBearish, str.tostring(SmtType.SessionBasedBearish))
+    SmtTypeToString.put(SmtType.CycleBasedBullish,   str.tostring(SmtType.CycleBasedBullish))
+    SmtTypeToString.put(SmtType.CycleBasedBearish,   str.tostring(SmtType.CycleBasedBearish))
+
+var bool _mapSmtTypeToStringInitialized = false
+if not _mapSmtTypeToStringInitialized
+    initSmtTypeMap()
+    _mapSmtTypeToStringInitialized := true
+
+
+type Smt
+    SmtType Type = na
+    int StartBarIndex = 0
+    float StartPrice  = 0.0
+    int EndBarIndex = 0
+    float EndPrice  = 0.0
+
+    bool IsValid  = true
+    line Line = na
+    label Label = na
+
+    bool MainPointTaken       = false
+    bool CorrelatedPointTaken = false
+
+
+method invalidate(Smt this) =>
+    this.IsValid := false
+    if(not na(this.Label) )
+        this.Label.delete()
+    if(not na(this.Line) )
+        this.Line.delete()
+
+method draw(Smt this, string labelText = '') =>
+
+    if(na(this.Line))
+        this.Line := line.new(x1= this.StartBarIndex, y1 = this.StartPrice, x2 = this.EndBarIndex, y2 = this.EndPrice, xloc = xloc.bar_index, extend = extend.none)
+        this.Line.set_color(color.fuchsia)
+        this.Line.set_width(2)
+    else
+        if(this.StartBarIndex != this.Line.get_x1() or this.StartPrice != this.Line.get_y1())
+            this.Line.set_xy1(this.StartBarIndex, this.StartPrice)
+
+        if(this.EndBarIndex != this.Line.get_x2() or this.EndPrice != this.Line.get_y2() )
+            this.Line.set_xy2(this.EndBarIndex, this.EndPrice)
+
+    lineSlope  = (this.EndBarIndex != this.StartBarIndex) ? (this.EndPrice - this.StartPrice) / (this.EndBarIndex - this.StartBarIndex) : 0
+    labelX     = this.StartBarIndex + math.round( (this.EndBarIndex - this.StartBarIndex) * 0.0 )
+    labelY     = this.StartPrice + lineSlope * ( labelX -  this.StartBarIndex)    
+    labelStyle = lineSlope > 0 ? label.style_label_lower_right : label.style_label_lower_left
+
+    textL = labelText
+    if(lineSlope > 0)
+        textL := labelText + " +"
+    else
+        textL := labelText +  " -"
+
+
+    if( na(this.Label) )
+        this.Label := label.new( x = labelX, y = labelY, text = textL, style = labelStyle, color = color.red, textcolor = color.white, size = size.small)
+    
+    if( this.Label.get_y() != labelY or this.Label.get_x() != labelX)
+        this.Label.set_xy(labelX, labelY)
+
+    // if not na(lastPivotHighBar) and not na(lastPivotHighPrice)
+    // phLine := line.new(x1=lastPivotHighBar, y1=lastPivotHighPrice, x2=bar_index, y2=high, color=color.red, width=2)
+    // // Label near left end (10% from start)
+    // slopePh = (high - lastPivotHighPrice) / (bar_index - lastPivotHighBar)
+    // label_x_ph = lastPivotHighBar + math.round((bar_index - lastPivotHighBar) * 0.9)
+    // label_y_ph = lastPivotHighPrice + slopePh * (label_x_ph - lastPivotHighBar)
+    // phLabel := label.new(x=label_x_ph, y=label_y_ph, text="Pivot High", style=label.style_label_center, color=color.red, textcolor=color.white, size=size.small)
+    
+
+
+
+
+startMonitoringRegisteredAssets() => 
     SessionsMapHolder.handleSessions()
 
+    var map<string, Smt> SmtMapHolder = map.new<string, Smt>() 
+    if ( isNewTradingDay() )
+        arrMapKeys = SmtMapHolder.keys().copy()
+        if arrMapKeys.size() > 0
+            for i = 0 to array.size(arrMapKeys) - 1
+                SmtMapHolder.get(array.get(arrMapKeys, i)).invalidate()
+                // if not na(smt)
+                //     smt.invalidate()
+                SmtMapHolder.remove(array.get(arrMapKeys, i))
+
+
+    for sessionKey in ARR_SESSIONS_KEYS
+        mainAssetSessionHighestCandle = SessionsMapHolder.getSessionHighestCandle(syminfo.ticker, sessionKey)
+        mainAssetSessionLowestCandle  = SessionsMapHolder.getSessionLowestCandle(syminfo.ticker, sessionKey)
+
+        if(na(mainAssetSessionHighestCandle) or na(mainAssetSessionLowestCandle))
+            continue
+
+        for [assetIndex, monitoredSymbol] in ARR_MONITORED_ASSETS
+
+            // if assetIndex > 0 
+            //     continue
+
+            string sessionBearishSmtKey = sessionKey + '-' + monitoredSymbol + SmtTypeToString.get(SmtType.SessionBasedBearish)
+            string sessionBullishSmtKey = sessionKey + '-' + monitoredSymbol + SmtTypeToString.get(SmtType.SessionBasedBullish)
+            
+
+            compAssetSessionHighestCandle = SessionsMapHolder.getSessionHighestCandle(monitoredSymbol, sessionKey)
+            compAssetSessionLowestCandle  = SessionsMapHolder.getSessionLowestCandle(monitoredSymbol, sessionKey)
+
+            if(na(compAssetSessionHighestCandle) or na(compAssetSessionLowestCandle))
+                continue
+
+            Smt detectedBearishSmt = SmtMapHolder.get(sessionBearishSmtKey)
+            Smt detectedBullishSmt = SmtMapHolder.get(sessionBullishSmtKey)
+
+            Candle compAssetCandle =  (0 == assetIndex) ? SecondAssetCandle : ThirdAssetCandle
+
+
+            float mainAssetMove = MainAssetCandle.highPrice - mainAssetSessionHighestCandle.highPrice
+            float compAssetMove = compAssetCandle.highPrice - compAssetSessionHighestCandle.highPrice
+
+            if( na(detectedBearishSmt) and ( (mainAssetMove * compAssetMove) <= 0 ) )          
+                detectedBearishSmt := Smt.new(Type = SmtType.SessionBasedBearish, 
+                                                             StartBarIndex = mainAssetSessionHighestCandle.barIndex, StartPrice = mainAssetSessionHighestCandle.highPrice,
+                                                             EndBarIndex = MainAssetCandle.barIndex, EndPrice =  MainAssetCandle.highPrice, IsValid = true)
+                
+                detectedBearishSmt.MainPointTaken       := MainAssetCandle.highPrice >= mainAssetSessionHighestCandle.highPrice
+                detectedBearishSmt.CorrelatedPointTaken := compAssetCandle.highPrice >= compAssetSessionHighestCandle.highPrice 
+
+            if( not na(detectedBearishSmt) and detectedBearishSmt.IsValid ) 
+
+                if(MainAssetCandle.highPrice >= detectedBearishSmt.EndPrice)
+                    detectedBearishSmt.EndBarIndex := MainAssetCandle.barIndex
+                    detectedBearishSmt.EndPrice    := MainAssetCandle.highPrice
+
+                detectedBearishSmt.MainPointTaken       := detectedBearishSmt.MainPointTaken       or ( MainAssetCandle.highPrice >= mainAssetSessionHighestCandle.highPrice )
+                detectedBearishSmt.CorrelatedPointTaken := detectedBearishSmt.CorrelatedPointTaken or ( compAssetCandle.highPrice >= compAssetSessionHighestCandle.highPrice )
+
+                detectedBearishSmt.IsValid := not (detectedBearishSmt.MainPointTaken and detectedBearishSmt.CorrelatedPointTaken)
+
+                if ( detectedBearishSmt.IsValid )
+                    detectedBearishSmt.draw(sessionKey + ' - ' + monitoredSymbol)
+                else
+                    detectedBearishSmt.invalidate()
+
+            if( not na(detectedBearishSmt)   ) // END detecting Bearish SMT 
+                SmtMapHolder.put(sessionBearishSmtKey, detectedBearishSmt)
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------
+            mainAssetMove := MainAssetCandle.lowPrice - mainAssetSessionLowestCandle.lowPrice
+            compAssetMove := compAssetCandle.lowPrice - compAssetSessionLowestCandle.lowPrice
+
+            if( na(detectedBullishSmt) and ( (mainAssetMove * compAssetMove) <= 0 ) )          
+                detectedBullishSmt := Smt.new(Type = SmtType.SessionBasedBullish, 
+                                                             StartBarIndex = mainAssetSessionLowestCandle.barIndex, StartPrice = mainAssetSessionLowestCandle.lowPrice,
+                                                             EndBarIndex = MainAssetCandle.barIndex, EndPrice =  MainAssetCandle.lowPrice, IsValid = true)
+                
+                detectedBullishSmt.MainPointTaken       := MainAssetCandle.lowPrice <= mainAssetSessionLowestCandle.lowPrice
+                detectedBullishSmt.CorrelatedPointTaken := compAssetCandle.lowPrice <= compAssetSessionLowestCandle.lowPrice
+
+
+
+
+            if( not na(detectedBullishSmt) and detectedBullishSmt.IsValid ) 
+
+                if(MainAssetCandle.lowPrice <= detectedBullishSmt.EndPrice)
+                    detectedBullishSmt.EndBarIndex := MainAssetCandle.barIndex
+                    detectedBullishSmt.EndPrice    := MainAssetCandle.lowPrice
+
+                detectedBullishSmt.MainPointTaken       := detectedBullishSmt.MainPointTaken       or ( MainAssetCandle.lowPrice <= mainAssetSessionLowestCandle.lowPrice )
+                detectedBullishSmt.CorrelatedPointTaken := detectedBullishSmt.CorrelatedPointTaken or ( compAssetCandle.lowPrice >= compAssetSessionLowestCandle.lowPrice )
+
+                detectedBullishSmt.IsValid := not (detectedBullishSmt.MainPointTaken and detectedBullishSmt.CorrelatedPointTaken)
+
+                if ( detectedBullishSmt.IsValid )
+                    detectedBullishSmt.draw(sessionKey + ' - ' + monitoredSymbol)
+                else
+                    detectedBullishSmt.invalidate()
+
+            if( not na(detectedBullishSmt)   ) // END detecting Bearish SMT 
+                SmtMapHolder.put(sessionBullishSmtKey, detectedBullishSmt)
+
+
+
+
+
+
 startMonitoringRegisteredAssets()
+
+
+
 
 
 if(  barstate.isconfirmed ) // barstate.islast   and and isDebugEnabled.   and barstate.isconfirmed //d  and isDebugEnabled
     
     log.info('------------------- HERE -------------------------')
               
-    var ALL_MONITORED = array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
         
-    Candle candle =  CandlesMapHolder.getLastRegisteredCandle(CandlesMapHolder.getSymbolKey('ES1!', '1'))
+    // Candle candle =  CandlesMapHolder.getLastRegisteredCandle(CandlesMapHolder.getSymbolKey('ES1!', '1'))
+    // if(not na(candle))
+    //     log.info("Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " Close Time: " + str.format_time(candle.closeTime, "HH:mm", TIMEZONE_NY))
+    // else
+    //     log.info('E NA')
+
+    Candle candle = SessionsMapHolder.getSessionHighestCandle('ES1!', SESSION_ASIA_KEY) 
     if(not na(candle))
         log.info("Candle | O: " + str.tostring(candle.openPrice) + " H: " + str.tostring(candle.highPrice) + " L: " + str.tostring(candle.lowPrice) + " C: " + str.tostring(candle.closePrice) + " Close Time: " + str.format_time(candle.closeTime, "HH:mm", TIMEZONE_NY))
     else
