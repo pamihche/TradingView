@@ -627,6 +627,11 @@ type Smt
     float MainPointPrice = 0    
     float CorrPointPrice = 0
 
+method isBullish(Smt this) =>
+    (this.Type == SmtType.CycleBasedBullish) or (this.Type == SmtType.SessionBasedBullish) or  (this.Type == SmtType.TimeBasedBullish)
+method isBerrish(Smt this) =>
+    not this.isBullish()
+
 method invalidate(Smt this) =>
     this.IsValid := false
     if(not na(this.Label) )
@@ -637,10 +642,8 @@ method invalidate(Smt this) =>
 method draw(Smt this, string labelText = '') =>
 
     if(na(this.Line))
-        this.Line := line.new(x1= this.StartBarIndex, y1 = this.StartPrice, x2 = this.EndBarIndex, y2 = this.EndPrice, xloc = xloc.bar_index, extend = extend.none)
-        //this.Line.set_color(color.fuchsia)
-        this.Line.set_width(1)
-        //log.info("Draw " + str.tostring(this.StartPrice) + " -> " + str.tostring(this.EndPrice))   
+        this.Line := line.new(x1= this.StartBarIndex, y1 = this.StartPrice, x2 = this.EndBarIndex, y2 = this.EndPrice, xloc = xloc.bar_index, width = 1,  extend = extend.none)
+        //this.Line.set_width(1)
     else
         if(this.StartBarIndex != this.Line.get_x1() or this.StartPrice != this.Line.get_y1())
             this.Line.set_xy1(this.StartBarIndex, this.StartPrice)
@@ -648,30 +651,33 @@ method draw(Smt this, string labelText = '') =>
         if(this.EndBarIndex != this.Line.get_x2() or this.EndPrice != this.Line.get_y2() )
             this.Line.set_xy2(this.EndBarIndex, this.EndPrice)
 
+    lineWidth  = 1
     lineSlope  = (this.EndBarIndex != this.StartBarIndex) ? (this.EndPrice - this.StartPrice) / (this.EndBarIndex - this.StartBarIndex) : 0
     labelX     = this.StartBarIndex + math.round( (this.EndBarIndex - this.StartBarIndex) * 0.0 )
     labelY     = this.StartPrice + lineSlope * ( labelX -  this.StartBarIndex)    
-    labelStyle = lineSlope > 0 ? label.style_label_lower_right : label.style_label_lower_left
+    
     labelColor = color.red
+    lineColor  = color.red
+    labelStyle = label.style_label_lower_right
 
-    switch this.Type
-        SmtType.SessionBasedBullish => 
-            this.Line.set_color(color.green)
-            labelColor := color.green
-            labelStyle := label.style_label_upper_right     
+    if this.isBullish()
+        labelColor := color.green
+        lineColor  := color.green
+        labelStyle := label.style_label_upper_right    
 
-        SmtType.SessionBasedBearish => 
-            this.Line.set_color(color.red)
-            labelColor := color.red
+    // if (this.Type == SmtType.SessionBasedBearish)
+    //     labelColor := color.rgb(142, 43, 159, 26)
+    //     lineColor  := color.purple
+    //     lineWidth  := 1
 
-            labelStyle := lineSlope > 0 ? label.style_label_lower_right : label.style_label_lower_right
-
+    this.Line.set_color(lineColor)
+    // this.Line.set_width(lineWidth)
 
     textL = labelText
-    if(lineSlope > 0)
-        textL := labelText + " +"
-    else
-        textL := labelText +  " -"
+    // if(lineSlope > 0)
+    //     textL := labelText + " +"
+    // else
+    //     textL := labelText +  " -"
 
 
     if( na(this.Label) )
@@ -744,8 +750,6 @@ startMonitoringRegisteredAssets() =>
 
             if( 0 == mainAssetMove and 0 == compAssetMove)
                 continue
-
-           // log.info('Aici DETECTECTED Bullish-> ' + monitoredSymbol + ' Main move-> ' + str.tostring(mainAssetMove) + ' Comp move-> ' + str.tostring(compAssetMove) )
 
             if( (not validSmtExists) and na(detectedBullishSmt) and (mainAssetMove * compAssetMove) <= 0 )           
                 detectedBullishSmt := Smt.new(Type = SmtType.SessionBasedBullish, 
@@ -920,11 +924,44 @@ startMonitoringRegisteredAssets() =>
             else 
                 lastClosedCycle            := sessionCycle
 
+
+    int activeCycleIndex    =  na(activeCycle)        ? -1 : SessionsMapHolder.getAllSessionsCyclesKeys().indexof(activeCycle.Key)
+    string lookBackCycleKey =  (activeCycleIndex < 3) ? '' : SessionsMapHolder.getAllSessionsCyclesKeys().get(activeCycleIndex - 3)
+    for [ assetIndex, monitoredSymbol ] in ARR_MONITORED_ASSETS
+        string bearishSmtKey   = lookBackCycleKey + '-' + monitoredSymbol + SmtTypeToString.get(SmtType.CycleBasedBearish)
+        string bullishSmtKey   = lookBackCycleKey + '-' + monitoredSymbol + SmtTypeToString.get(SmtType.CycleBasedBullish)
+        bearishSmt = SmtMapHolder.get(bearishSmtKey)
+        bullishSmt = SmtMapHolder.get(bullishSmtKey)
+        if( not na (bearishSmt) )            
+            bearishSmt.invalidate()
+        if( not na (bullishSmt) )            
+            bullishSmt.invalidate()
+
+    
+    // if (activeCycleIndex - 3 >= 0)
+    //     cycleKey =  SessionsMapHolder.getAllSessionsCyclesKeys().get(activeCycleIndex - 3)
+    //     for [ assetIndex, monitoredSymbol ] in ARR_MONITORED_ASSETS
+    //         string bearishSmtKey   = cycleKey + '-' + monitoredSymbol + SmtTypeToString.get(SmtType.CycleBasedBearish)
+    //         string bullishSmtKey   = cycleKey + '-' + monitoredSymbol + SmtTypeToString.get(SmtType.CycleBasedBullish)
+    //         bearishSmt = SmtMapHolder.get(bearishSmtKey)
+    //         bullishSmt = SmtMapHolder.get(bullishSmtKey)
+    //         if( not na (bearishSmt) )            
+    //             bearishSmt.invalidate()
+    //             SmtMapHolder.remove(bearishSmtKey)
+    //             //SmtMapHolder.put(bearishSmtKey, bearishSmt)
+
+    //         if( not na (bullishSmt) )            
+    //             bullishSmt.invalidate()
+    //             SmtMapHolder.remove(bullishSmtKey)
+    //             //SmtMapHolder.put(bullishSmtKey, bullishSmt)
+
+
+
+
     for [smtKey, registeredSmt] in SmtMapHolder
 
         if (not registeredSmt.IsValid) or (registeredSmt.Type != SmtType.CycleBasedBearish and registeredSmt.Type != SmtType.CycleBasedBullish)
             continue
-
 
         Candle CompAssetCandle = str.contains(smtKey, ARR_MONITORED_ASSETS.get(0)) ? SecondAssetCandle : ThirdAssetCandle
         if( not registeredSmt.MainPointTaken )    
@@ -984,15 +1021,16 @@ startMonitoringRegisteredAssets() =>
             Smt detectedBearishSmt = SmtMapHolder.get(bearishSmtKey)
             Smt detectedBullishSmt = SmtMapHolder.get(bullishSmtKey)
 
+
             for iteration = 1 to 2   
                 SmtType checkSmtType = (iteration == 1) ? SmtType.CycleBasedBearish : SmtType.CycleBasedBullish
 
-                float mainAssetMove = (checkSmtType == SmtType.CycleBasedBearish) ? MainAssetCandle.highPrice - lastClosedCycle.HighestCandle.highPrice          : MainAssetCandle.lowPrice - lastClosedCycle.HighestCandle.lowPrice
-                float compAssetMove = (checkSmtType == SmtType.CycleBasedBearish) ? CompAssetCandle.highPrice - compAssetLastClosedCycle.HighestCandle.highPrice : CompAssetCandle.lowPrice - compAssetLastClosedCycle.HighestCandle.lowPrice
+                float mainAssetMove = (checkSmtType == SmtType.CycleBasedBearish) ? MainAssetCandle.highPrice - lastClosedCycle.HighestCandle.highPrice          : MainAssetCandle.lowPrice - lastClosedCycle.LowestCandle.lowPrice
+                float compAssetMove = (checkSmtType == SmtType.CycleBasedBearish) ? CompAssetCandle.highPrice - compAssetLastClosedCycle.HighestCandle.highPrice : CompAssetCandle.lowPrice - compAssetLastClosedCycle.LowestCandle.lowPrice
 
                 if( 0 == mainAssetMove and 0 == compAssetMove)
                     continue
-
+                    
                 if( (checkSmtType == SmtType.CycleBasedBearish) and ( not na(detectedBearishSmt) and not detectedBearishSmt.IsValid) )
                     continue
 
@@ -1078,7 +1116,7 @@ startMonitoringRegisteredAssets() =>
                 if(not detectedBullishSmt .IsValid)
                     detectedBullishSmt .invalidate()
                 else 
-                    detectedBullishSmt .draw('90MIN A9ci ' + monitoredSymbol + ' ' + bullishSmtKey)
+                    detectedBullishSmt .draw('90MIN - ' + monitoredSymbol)
 
                 validBullishSmtExists := detectedBullishSmt.IsValid
                 SmtMapHolder.put(bullishSmtKey, detectedBullishSmt)
