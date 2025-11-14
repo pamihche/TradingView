@@ -14,7 +14,9 @@ const string SESSION_NY_PM_KEY  = "NYPM"
 const string[] ARR_SESSIONS_KEYS = array.from(SESSION_ASIA_KEY, SESSION_LONDON_KEY, SESSION_NY_AM_KEY, SESSION_NY_PM_KEY)
 
 const string[] ARR_TIME_FRAMES_TO_MONITOR = array.from(
-             //'3M',
+             '12M',   
+             '6M',  
+             '3M',
              '1M',
              '1W',
              '1D',
@@ -29,11 +31,19 @@ const string[] ARR_TIME_FRAMES_TO_MONITOR = array.from(
              "1" 
           )
 
-var string firstMonitoredAsset   = 'ES1!'
-var string secondMonitoredAsset  = 'YM1!'
+
+var string firstMonitoredAsset   = na
+var string secondMonitoredAsset  = na
+var bool IS_TRIAD_VALID = false
+if (barstate.isfirst)
+    string[] arrTriadSymbols = array.from('NQ1!', 'ES1!', 'YM1!')
+    IS_TRIAD_VALID       := (arrTriadSymbols.remove( arrTriadSymbols.indexof(syminfo.ticker) ) == syminfo.ticker)
+    firstMonitoredAsset  := arrTriadSymbols.get(0)
+    secondMonitoredAsset :=  arrTriadSymbols.get(1) 
+
 
 const string[] ARR_MONITORED_ASSETS = array.from(firstMonitoredAsset, secondMonitoredAsset) //, 
-const string[] ARR_COMBINED_MONITORED_ASSETS  =  array.from(syminfo.ticker, firstMonitoredAsset, secondMonitoredAsset) //array.concat(array.from(syminfo.ticker), ARR_MONITORED_ASSETS)
+const string[] ARR_COMBINED_MONITORED_ASSETS  =  array.from(syminfo.ticker, firstMonitoredAsset, secondMonitoredAsset)
 
 isNewTradingDay() =>
     timeframe.change('1D')
@@ -45,7 +55,7 @@ compareTimeFrames(string timeFrame1, string timeFrame2) =>
 
 getSymbolTickerId(string symbol) =>
     switch symbol
-        "NQ1!" => "CME_MINI:NQ1"
+        "NQ1!" => "CME_MINI:NQ1!"
         "ES1!" => "CME_MINI:ES1!" 
         "YM1!" => "CBOT_MINI:YM1!"
         => na
@@ -146,8 +156,8 @@ type Candle
     int lowBarIndex   = 0
     int closeBarIndex = 0
     
-    bool highTaken = false
-    bool lowTaken  = false
+    // bool highTaken = false
+    // bool lowTaken  = false
     //string TEST = na
 
 type SessionCycle
@@ -189,10 +199,13 @@ type Smt
     bool MainPointTaken = false
     bool CorrPointTaken = false
     int CorrAssetIndex  = -1
-    int TimeFrame       = 0 // timeframe detection in seconds
-    int TimeStamp       = 0
+    int TimeFrameInSeconds = 0 // timeframe detection in seconds
     float MainPointPrice = 0    
     float CorrPointPrice = 0
+
+type IntArrayHolder
+    array<int> ArrayNumbers
+    
 
 type CandlesList
     array<Candle> arrCandles
@@ -420,9 +433,9 @@ method handleSessions(map<string, Session> this) =>
                 this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_AM_KEY),  NYAMSession.getDeepInstance())
                 this.put(this.getAssetSessionKey(monitoredSymbol, SESSION_NY_PM_KEY),  NYPMSession.getDeepInstance())
 
-
+    //log.info('checking')
     for monitoredSymbol in ARR_COMBINED_MONITORED_ASSETS
-        if not (canProcessData)
+        if not (canProcessData) or not(barstate.isconfirmed)
             break
 
         for sessionKey in ARR_SESSIONS_KEYS
@@ -516,6 +529,7 @@ method getSessionLowestCandle(map<string, Session> this, string monitoredSymbol,
     lowestCandle
 
 
+
 method sortMapByCandlePrice(map<string, Candle>this, string priceField, orderType) =>
     if(this.size() > 0)
         keys   = this.keys()
@@ -532,7 +546,7 @@ method sortMapByCandlePrice(map<string, Candle>this, string priceField, orderTyp
 
 method registerCandle(map<string, CandlesList>this, string symbolKey, Candle candleToRegister) => 
     
-    const int maxCandlesToKeep  = 50
+    const int maxCandlesToKeep  = 360
     
     CandlesList arrCandlesList  =  this.get(symbolKey) //this.contains(symbolKey) ? : CandlesList.new(array.new<Candle>())
     if (na(arrCandlesList))
@@ -545,8 +559,8 @@ method registerCandle(map<string, CandlesList>this, string symbolKey, Candle can
         if (lastRegisteredCandle.isEqualTo(candleToRegister))
             canRegisterNewCandle := false
 
-        lastRegisteredCandle.highTaken := lastRegisteredCandle.highTaken or lastRegisteredCandle.highPrice < candleToRegister.highPrice
-        lastRegisteredCandle.lowTaken  := lastRegisteredCandle.lowTaken  or lastRegisteredCandle.lowPrice  < candleToRegister.lowPrice
+        // lastRegisteredCandle.highTaken := lastRegisteredCandle.highTaken or lastRegisteredCandle.highPrice < candleToRegister.highPrice
+        // lastRegisteredCandle.lowTaken  := lastRegisteredCandle.lowTaken  or lastRegisteredCandle.lowPrice  < candleToRegister.lowPrice
     
     if ( canRegisterNewCandle )
         arrCandlesList.arrCandles.push(candleToRegister)
@@ -556,18 +570,18 @@ method registerCandle(map<string, CandlesList>this, string symbolKey, Candle can
             this.put(symbolKey, arrCandlesList)
 
 
-
 registerCandlesHistory() =>
 
     var map<string, Candle> tempCandlesMapHolder = map.new<string, Candle>()
 
-    Candle lastConfirmedCandle = barstate.isconfirmed ?  Candle.new(open, high, low, close, time, time_close, bar_index, bar_index, bar_index, bar_index, bar_index) : na
+    Candle lastConfirmedCandle = IS_TRIAD_VALID and barstate.isconfirmed ?  Candle.new(open, high, low, close, time, time_close, bar_index, bar_index, bar_index, bar_index, bar_index) : na
     // if(not na(lastConfirmedCandle) )
     //     CandlesMapHolder.registerCandle(CandlesMapHolder.getSymbolKey(syminfo.ticker, timeframe.period), lastConfirmedCandle)
 
-    for monitoredTimeFrame in ARR_TIME_FRAMES_TO_MONITOR
-        if ( (year >= CURRENT_YEAR - 1) and (not tempCandlesMapHolder.contains(monitoredTimeFrame)) and compareTimeFrames(timeframe.period, monitoredTimeFrame) < 0 ) 
-            tempCandlesMapHolder.put(monitoredTimeFrame, Candle.new())
+    if ( IS_TRIAD_VALID and (year >= CURRENT_YEAR - 1) )
+        for monitoredTimeFrame in ARR_TIME_FRAMES_TO_MONITOR
+            if ( (not tempCandlesMapHolder.contains(monitoredTimeFrame)) and compareTimeFrames(timeframe.period, monitoredTimeFrame) < 0 ) 
+                tempCandlesMapHolder.put(monitoredTimeFrame, Candle.new())
         
     for monitoredTimeFrame in tempCandlesMapHolder.keys()
         Candle monitoredCandle = tempCandlesMapHolder.get(monitoredTimeFrame)
@@ -609,7 +623,7 @@ MainAssetCandle.setOpenCloseTime()
 
 initializeRealTimeCandles() =>
 
-    bool canRequestData  =  (year >= CURRENT_YEAR - 1)
+    bool canRequestData  =  IS_TRIAD_VALID and (year >= CURRENT_YEAR - 1)
 
     if canRequestData
         [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(ARR_MONITORED_ASSETS.get(0)), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)           
@@ -618,7 +632,7 @@ initializeRealTimeCandles() =>
         SecondAssetCandle.setBarIndex(nz(bi))
         SecondAssetCandle.setOpenCloseTime(nz(ot), nz(ct))
         SecondAssetCandle.setPrices(nz(o), nz(h), nz(l), nz(c))
-        
+
     if canRequestData
         [o, h, l, c, ot, ct, bi] = request.security(getSymbolTickerId(ARR_MONITORED_ASSETS.get(1)), timeframe.period, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)           
         // if(not na (bi) and bi != ThirdAssetCandle.barIndex and ot != ThirdAssetCandle.openTime)
@@ -643,7 +657,8 @@ registerOtherAssetsCandlesHistory() =>
     var int monitoredTimeFrameInSeconds = 0
 
     for monitoredTimeFrame in ARR_TIME_FRAMES_TO_MONITOR
-
+        if not ( IS_TRIAD_VALID )
+            break    
         if( not higherTimeFrameHasChanged(monitoredTimeFrame) )
             continue
 
@@ -657,29 +672,6 @@ registerOtherAssetsCandlesHistory() =>
         Candle otherAssetCandle = na
 
         for [symbolIndex, monitoredSymbol] in ARR_MONITORED_ASSETS//ARR_COMBINED_MONITORED_ASSETS
-            //[o, h, l, c, ot, ct, bi] = request.security(monitoredSymbol, monitoredTimeFrame, [open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
-            //[o, h, l, c, ot, ct, bi] = request.security(monitoredSymbol, monitoredTimeFrame,[open[1], high[1], low[1], close[1], time[1], time_close[1], bar_index[1]], lookahead = barmerge.lookahead_on)
-
-            // if( currentTimeFrameInSeconds == monitoredTimeFrameInSeconds ) //monitoredTimeFrame == timeframe.period
-            //     [o, h, l, c, ot, ct, bi] = request.security(monitoredSymbol, monitoredTimeFrame,[open, high, low, close, time, time_close, bar_index], lookahead = barmerge.lookahead_off)
-            //     //[o, h, l, c, ot, ct, bi] = request.security(monitoredSymbol, monitoredTimeFrame,[open[1], high[1], low[1], close[1], time[1], time_close[1], bar_index[1]], lookahead = barmerge.lookahead_on)
-                
-            //     if(0 == symbolIndex)
-            //         if(bi != SecondAssetCandle.barIndex and ot != SecondAssetCandle.openTime)
-            //             otherAssetCandle := SecondAssetCandle.copy()
-
-            //         SecondAssetCandle.setBarIndex(nz(bi))
-            //         SecondAssetCandle.setOpenCloseTime(nz(ot), nz(ct))
-            //         SecondAssetCandle.setPrices(nz(o), nz(h), nz(l), nz(c))
-
-            //     else
-            //         if(bi != ThirdAssetCandle.barIndex and ot != ThirdAssetCandle.openTime)
-            //             otherAssetCandle := ThirdAssetCandle.copy()
-
-            //         ThirdAssetCandle.setBarIndex(nz(bi))
-            //         ThirdAssetCandle.setOpenCloseTime(nz(ot), nz(ct))
-            //         ThirdAssetCandle.setPrices(nz(o), nz(h), nz(l), nz(c))
-            // else
             [o, h, l, c, ot, ct, bi] = request.security(monitoredSymbol, monitoredTimeFrame,[open[1], high[1], low[1], close[1], time[1], time_close[1], bar_index[1]], lookahead = barmerge.lookahead_on)
             otherAssetCandle := Candle.new(nz(o), nz(h), nz(l), nz(c),nz(ot), nz(ct), nz(bi))
 
@@ -698,16 +690,18 @@ initSmtTypeMap() => // Initialize map in function. Only way to avoid The functio
     SmtTypeToString.put(SmtType.CycleBasedBullish,   str.tostring(SmtType.CycleBasedBullish))
     SmtTypeToString.put(SmtType.CycleBasedBearish,   str.tostring(SmtType.CycleBasedBearish))
 
-var bool _mapSmtTypeToStringInitialized = false
-if not _mapSmtTypeToStringInitialized
+if(barstate.isfirst)
     initSmtTypeMap()
-    _mapSmtTypeToStringInitialized := true
 
 
 method isBullish(Smt this) =>
     (this.Type == SmtType.CycleBasedBullish) or (this.Type == SmtType.SessionBasedBullish) or  (this.Type == SmtType.TimeBasedBullish)
 method isBerrish(Smt this) =>
     not this.isBullish()
+
+
+method getKey(Smt this, string strTimeFrame = na) =>
+    str.format("{0}-{1}-{2}", str.tostring(this.Type),  na(strTimeFrame) ? str.tostring(this.TimeFrameInSeconds) : strTimeFrame, str.tostring(this.CorrAssetIndex))
 
 method invalidate(Smt this) =>
     this.IsValid := false
@@ -745,7 +739,7 @@ method draw(Smt this) =>
             this.Line.set_xy2(this.EndBarIndex, this.EndPrice)
 
 
-    if( na(this.Label) )
+    if na(this.Label) and not na(this.LabelText) and str.length(this.LabelText) != 0
         this.Label := label.new( x = labelX, y = labelY, text = na(this.LabelText) ? '' : this.LabelText, style = labelStyle, color = labelColor , textcolor = color.white, size = size.small)
         
     if( this.Label.get_y() != labelY or this.Label.get_x() != labelX)
@@ -756,10 +750,11 @@ method draw(Smt this) =>
 startMonitoringDailySessions() => 
 
     SessionsMapHolder.handleSessions()
-
+    var map<string, bool>SessionsPointsMap = map.new<string, bool>() 
     map<string, Candle> ClosedSessionsCandlesMap = map.new<string, Candle>()
 
     if ( isNewTradingDay() )
+        SessionsPointsMap.clear()
         for [key, detectedSmt] in SmtMapHolder
             detectedSmt.invalidate()
         SmtMapHolder.clear()
@@ -786,9 +781,9 @@ startMonitoringDailySessions() =>
         if(currentSessionKeyIndex <= 0 or lowestSessionKeyIndex < 0  ) // includ Asia aici. daca e prima nu avem SMT pana nu se inchide
             break
 
-        // bool currentPriceIsBelowLowest = MainAssetCandle.lowPrice < ClosedSessionsCandlesMap.get(lowestSessionKey).lowPrice
-        // if( not currentPriceIsBelowLowest and ARR_SESSIONS_KEYS.indexof(sessionKey) < lowestSessionKeyIndex)
-        //     continue
+        bool currentPriceIsBelowLowest = MainAssetCandle.lowPrice < ClosedSessionsCandlesMap.get(lowestSessionKey).lowPrice
+        if( not currentPriceIsBelowLowest and ARR_SESSIONS_KEYS.indexof(sessionKey) < lowestSessionKeyIndex)
+            continue
 
         Candle mainAssetSessionLowestCandle = SessionsMapHolder.getSessionLowestCandle(syminfo.ticker, sessionKey) //ClosedSessionsCandlesMap.get(sessionKey)
 
@@ -867,9 +862,9 @@ startMonitoringDailySessions() =>
         if(currentSessionKeyIndex <= 0 or highestSessionKeyIndex < 0  ) // includ Asia aici. daca e prima nu avem SMT pana nu se inchide
             break
         
-        // bool currentPriceIsAboveHighest = MainAssetCandle.highPrice > ClosedSessionsCandlesMap.get(highestSessionKey).highPrice
-        // if(  currentPriceIsAboveHighest and ARR_SESSIONS_KEYS.indexof(sessionKey) < highestSessionKeyIndex )
-        //     continue
+        bool currentPriceIsAboveHighest = MainAssetCandle.highPrice > ClosedSessionsCandlesMap.get(highestSessionKey).highPrice
+        if(  currentPriceIsAboveHighest and ARR_SESSIONS_KEYS.indexof(sessionKey) < highestSessionKeyIndex )
+            continue
 
         Candle mainAssetSessionHighestCandle = SessionsMapHolder.getSessionHighestCandle(syminfo.ticker, sessionKey)
 
@@ -1120,7 +1115,7 @@ startMonitoringDailySessions() =>
                 if(not detectedBullishSmt .IsValid)
                     detectedBullishSmt .invalidate()
                 else 
-                    detectedBullishSmt.LabelText := '90MIN - ' + monitoredSymbol 
+                    detectedBullishSmt.LabelText := '90-C - ' + monitoredSymbol 
                     detectedBullishSmt .draw()
 
                 validBullishSmtExists := detectedBullishSmt.IsValid
@@ -1129,7 +1124,8 @@ startMonitoringDailySessions() =>
 
 
 
-if(timeframe.isminutes and (timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds('30'))  )   // and ( barstate.isrealtime ) or isInRecentFuturesPeriod(2, 'W')
+
+if( IS_TRIAD_VALID and timeframe.isminutes and (timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds('30')) and ( last_bar_time - time <= ( 24 * 60 * 60 * 1000) )  )    //and  isInRecentFuturesPeriod(2, "D") // and ( barstate.isrealtime ) or isInRecentFuturesPeriod(2, 'W')
     startMonitoringDailySessions()
 
 
@@ -1144,22 +1140,394 @@ var map<string, PrecisionSwingPoint> PspMapHolder = map.new<string, PrecisionSwi
 
 
 startDetectingTimeBasedSmt() => 
+    
+    var int currentTimeFrameInSeconds         = timeframe.in_seconds(timeframe.period)
+    var map<int, Candle> MainMapHighs         = map.new<int, Candle>()  
+    var map<int, Candle> MainMapLows          = map.new<int, Candle>()  
+    var map<string, IntArrayHolder> CachedSmtValidPoints = map.new<string, IntArrayHolder>()
+    
+    var map<int, int> CachedLastBarIndex = map.new<int, int>()
+    //var map<int, Smt> ExistingSmtInfoMap = map.new<int, Smt>()
 
-    int timeframeInSeconds  = timeframe.in_seconds(timeframe.period) // not (barstate.isconfirmed) or
+    var float[] arrMainHighs          = array.new_float()
+    var float[] arrMainLows           = array.new_float()
+    var int[]   arrSortedHighsIndices = array.new_int()
+    var int[]   arrSortedLowsIndices  = array.new_int()
 
-    for monitoredTimeFrame in ARR_TIME_FRAMES_TO_MONITOR
+    var array<Candle> mainAssetRegisteredCandles   =  array.new<Candle>(60)
+    var array<Candle> secondAssetRegisteredCandles =  array.new<Candle>(60)
+    var array<Candle> thirdAssetRegisteredCandles  =  array.new<Candle>(60)
+
+    mainAssetRegisteredCandles.clear()   
+    secondAssetRegisteredCandles.clear()
+    thirdAssetRegisteredCandles.clear()
+
+
+    //ExistingSmtInfoMap.clear()
+    for smtKey in SmtMapHolder.keys()
+        Smt registeredSmt = SmtMapHolder.get(smtKey)
+        bool isBearish = (registeredSmt.Type == SmtType.TimeBasedBearish)
+        bool isBullish = (registeredSmt.Type == SmtType.TimeBasedBullish)
+
+        if (not (isBearish or isBullish) )
+            continue
+
+
+        // //if(registeredSmt.StartBarIndex > 6665)
+        // if(isBullish and registeredSmt.StartBarIndex == 6670)
+        //     log.info("Found => " + smtKey + '   ' + str.tostring(registeredSmt.StartBarIndex) + '   ' + str.tostring(registeredSmt.MainPointTaken))
+
+        if (registeredSmt.IsValid)
+            if (isBearish and MainAssetCandle.highPrice > registeredSmt.EndPrice) or ( isBullish and MainAssetCandle.lowPrice < registeredSmt.EndPrice )
+                registeredSmt.EndBarIndex := MainAssetCandle.barIndex
+                registeredSmt.EndPrice    := isBearish ? MainAssetCandle.highPrice :  MainAssetCandle.lowPrice
+
+            registeredSmt.MainPointTaken := registeredSmt.MainPointTaken or ( isBearish ? (registeredSmt.MainPointPrice < MainAssetCandle.highPrice) : registeredSmt.MainPointPrice > MainAssetCandle.lowPrice )
+            registeredSmt.CorrPointTaken := registeredSmt.CorrPointTaken or ( isBearish ? (registeredSmt.CorrPointPrice < ((registeredSmt.CorrAssetIndex == 0) ? SecondAssetCandle.highPrice : ThirdAssetCandle.highPrice)) : (registeredSmt.CorrPointPrice > ((registeredSmt.CorrAssetIndex == 0) ? SecondAssetCandle.lowPrice : ThirdAssetCandle.lowPrice)) )
+            registeredSmt.IsValid        := not(registeredSmt.MainPointTaken and registeredSmt.CorrPointTaken)
+
+        if registeredSmt.IsValid
+            registeredSmt.draw()
+
+            continue
+
+        registeredSmt.invalidate()
+        SmtMapHolder.remove(smtKey)
+
+    bool canProcessData = IS_TRIAD_VALID and (bar_index >= math.max(0, last_bar_index - 120))
+
+    // if timeframe.isdwm
+    //     if ( barstate.isnew and barstate.isconfirmed[1] )
+    //         log.info('TEST. ' + str.tostring(bar_index))
+
+    if (canProcessData and barstate.isnew and barstate.isconfirmed[1])
+        MainMapHighs.clear()
+        MainMapLows.clear()
+        arrMainHighs.clear()
+        arrMainLows.clear()
+        
+        if currentTimeFrameInSeconds != 60
+            mainAssetRegisteredCandles :=  CandlesMapHolder.getRegisteredCandles( CandlesMapHolder.getSymbolKey( syminfo.ticker, timeframe.period) )
+
+        int sizeMainArray = mainAssetRegisteredCandles.size()
+        for [index, mainAssetCandle] in mainAssetRegisteredCandles
+            arrMainHighs.push(mainAssetCandle.highPrice)
+            arrMainLows.push(mainAssetCandle.lowPrice)
+
+        arrSortedHighsIndices := arrMainHighs.sort_indices(order.ascending)
+        arrSortedLowsIndices  := arrMainLows.sort_indices(order.descending)
+
+        for iteration = 1 to 2
+            bool handleHighs = (iteration == 1)
+            int processedRightIndex = -1
+            for i = 1 to (sizeMainArray == 0 ? na : sizeMainArray)
+                int candleIndex = array.get( handleHighs ? arrSortedHighsIndices :  arrSortedLowsIndices, -i )
+                if candleIndex < processedRightIndex
+                    continue
+                processedRightIndex := candleIndex
+                Candle candle =  mainAssetRegisteredCandles.get( candleIndex )
+                map.put(handleHighs ?  MainMapHighs :  MainMapLows, handleHighs ? candle.highBarIndex : candle.lowBarIndex, candle)    
+
+    if (true)
+        var label[] arrDebugLabels = array.new<label>()
+        for debugLabel in arrDebugLabels
+            debugLabel.delete()
+        arrDebugLabels.clear()
+
+        // for [hightBarindex, mainRegisteredCandle] in MainMapHighs
+        //     string textLabel =  ''
+        //     newLabel = label.new( mainRegisteredCandle.highBarIndex, mainRegisteredCandle.highPrice, text = textLabel + ' - ' +str.tostring(mainRegisteredCandle.highBarIndex), style = label.style_label_down,color = color.maroon,textcolor = color.white,size = size.small)
+        //     array.push(arrDebugLabels, newLabel)
+
+        // for [lowBarindex, mainRegisteredCandle] in MainMapLows
+        //     string textLabel =  ''
+        //     newLabel = label.new( mainRegisteredCandle.lowBarIndex, mainRegisteredCandle.lowPrice, text = textLabel + ' - ' +str.tostring(mainRegisteredCandle.lowBarIndex), style = label.style_label_up,color = color.green,textcolor = color.white,size = size.small)
+        //     array.push(arrDebugLabels, newLabel)
+
+
+    for [timeFrameIndex, monitoredTimeFrame] in ARR_TIME_FRAMES_TO_MONITOR
+        if not (canProcessData ) //// and barstate.isnew and barstate.isconfirmed[1]
+            break
 
         int monitoredTimeFrameInSeconds = timeframe.in_seconds(monitoredTimeFrame)
 
+        if(currentTimeFrameInSeconds <= 300 and monitoredTimeFrameInSeconds > 5400) // 5 minute 90 min    
+            continue
+
+        // if (monitoredTimeFrameInSeconds != 86400)
+        //     continue
+
+        // log.info(monitoredTimeFrame + ' -> ' + str.tostring(timeframe.in_seconds(monitoredTimeFrame)))   
+
+        // continue
+        if( ( monitoredTimeFrameInSeconds < currentTimeFrameInSeconds )  ) // //or ( not higherTimeFrameHasChanged(monitoredTimeFrame) )  compareTimeFrames(monitoredTimeFrame, timeframe.period) < 0)
+            continue
+
+        if ( (not timeframe.isdwm ) and  (monitoredTimeFrameInSeconds % currentTimeFrameInSeconds != 0) )
+            continue
+
+        //if (barstate.isnew and barstate.isconfirmed[1])
+        mainAssetRegisteredCandles   :=  CandlesMapHolder.getRegisteredCandles( CandlesMapHolder.getSymbolKey( syminfo.ticker      , monitoredTimeFrame) )
+        secondAssetRegisteredCandles :=  CandlesMapHolder.getRegisteredCandles( CandlesMapHolder.getSymbolKey( firstMonitoredAsset , monitoredTimeFrame) )
+        thirdAssetRegisteredCandles  :=  CandlesMapHolder.getRegisteredCandles( CandlesMapHolder.getSymbolKey( secondMonitoredAsset, monitoredTimeFrame) )
+
+        int sizeMain   = mainAssetRegisteredCandles.size()
+
+        if (not ( sizeMain > 0 and  sizeMain == secondAssetRegisteredCandles.size() and sizeMain == thirdAssetRegisteredCandles.size() ) )
+            continue
+
+        
+        Candle mainAssetCandle   = mainAssetRegisteredCandles.get( -1 )
+        Candle secondAssetCandle = secondAssetRegisteredCandles.get( -1 )
+        Candle thirdAssetCandle  = thirdAssetRegisteredCandles.get( -1 )
+
+        if not (mainAssetCandle.openTime == secondAssetCandle.openTime and secondAssetCandle.openTime == thirdAssetCandle.openTime)
+            continue
+
+
+        string bearishValidPointsSmtKey = monitoredTimeFrame + '-' + SmtTypeToString.get(SmtType.TimeBasedBearish)
+        string bullishValidPointsSmtKey = monitoredTimeFrame + '-' + SmtTypeToString.get(SmtType.TimeBasedBullish)
+
+        if( (nz(CachedLastBarIndex.get(monitoredTimeFrameInSeconds)) != mainAssetCandle.barIndex)  and (monitoredTimeFrameInSeconds != 60) )
+            arrMainHighs.clear()
+            arrMainLows.clear()
+            for _mainAssetCandle in mainAssetRegisteredCandles
+                arrMainHighs.push(_mainAssetCandle.highPrice)
+                arrMainLows.push( _mainAssetCandle.lowPrice )
+
+            arrSortedHighsIndices := arrMainHighs.sort_indices(order.ascending)
+            arrSortedLowsIndices  := arrMainLows.sort_indices(order.descending)
+              
+            for iteration = 1 to 2
+                bool handleHighs = (iteration == 1)
+                int processedRightIndex = -1
+                arrIndexes = array.new_int()
+                for i = 1 to sizeMain
+                    int candleIndex = array.get( handleHighs ? arrSortedHighsIndices :  arrSortedLowsIndices, -i )
+                    if candleIndex < processedRightIndex
+                        continue
+                    processedRightIndex := candleIndex
+                    arrIndexes.push(candleIndex)
+
+                CachedSmtValidPoints.remove( handleHighs ? bearishValidPointsSmtKey : bullishValidPointsSmtKey)
+
+                if(arrIndexes.size() == 0)
+                    continue
+
+                CachedLastBarIndex.put(monitoredTimeFrameInSeconds, mainAssetCandle.barIndex)
+                // log.info(str.tostring(mainAssetCandle.barIndex))
+                //if handleHighs
+                arrIndexes.reverse()    
+                CachedSmtValidPoints.put( handleHighs ? bearishValidPointsSmtKey : bullishValidPointsSmtKey, IntArrayHolder.new(arrIndexes))
+
+        Candle mainRegisteredCandle    = na
+        Candle compareRegisteredCandle = na
+        Candle CompareAssetCandle      = na
+
+        Smt detectedBearishSmt  = na
+        Smt detectedBullishSmt  = na
+      
+
+        for iteration = 1 to 2
+            bool checkBearishSmt = (iteration == 1)
+            IntArrayHolder pointsHolder = checkBearishSmt ? CachedSmtValidPoints.get(bearishValidPointsSmtKey) : CachedSmtValidPoints.get(bullishValidPointsSmtKey)
+            int[] arrValidPoints = na(pointsHolder) ? array.new_int() : pointsHolder.ArrayNumbers
+
+            // if checkBearishSmt
+            //     continue
+            Candle MainComparisonCandle = na
+            for [i, candleIndex] in arrValidPoints
+                mainRegisteredCandle := mainAssetRegisteredCandles.get(candleIndex)
+                
+                Candle currentTimeFrameCandle = checkBearishSmt ? MainMapHighs.get(mainRegisteredCandle.highBarIndex) : MainMapLows.get(mainRegisteredCandle.lowBarIndex)
+                if na(currentTimeFrameCandle)
+                    continue
+                //log.info('Candle Index -> ' + str.tostring(mainRegisteredCandle.lowBarIndex))   
+                for [symbolIndex, monitoredSymbol] in ARR_MONITORED_ASSETS
+                    bool isFirstAsset = (symbolIndex == 0)
+
+                    if checkBearishSmt and not na(detectedBearishSmt)
+                        break
+
+                    if not(checkBearishSmt) and not na(detectedBullishSmt)
+                        break
+
+                    if not (isFirstAsset)
+                        continue
+
+                    CompareAssetCandle      := isFirstAsset ? SecondAssetCandle  : ThirdAssetCandle
+                    compareRegisteredCandle := isFirstAsset ? secondAssetRegisteredCandles.get(candleIndex) : thirdAssetRegisteredCandles.get(candleIndex)
+
+                    float mainAssetMove = checkBearishSmt ? (MainAssetCandle.highPrice - mainRegisteredCandle.highPrice)
+                                                          : (MainAssetCandle.lowPrice  - mainRegisteredCandle.lowPrice)
+                    float compAssetMove = checkBearishSmt ? (CompareAssetCandle.highPrice - compareRegisteredCandle.highPrice)
+                                                          : (CompareAssetCandle.lowPrice  - compareRegisteredCandle.lowPrice)
+
+                    if (mainAssetMove == 0 and compAssetMove == 0) or (mainAssetMove * compAssetMove > 0)
+                        continue
+
+                    //log.info('Aici')
+                    Smt detectedSmt = Smt.new(
+                         Type          = checkBearishSmt ? SmtType.TimeBasedBearish : SmtType.TimeBasedBullish,
+                         StartBarIndex = checkBearishSmt ? currentTimeFrameCandle.highBarIndex : currentTimeFrameCandle.lowBarIndex,
+                         StartPrice    = checkBearishSmt ? currentTimeFrameCandle.highPrice    : currentTimeFrameCandle.lowPrice,
+                         EndPrice      = checkBearishSmt ? MainAssetCandle.highPrice : MainAssetCandle.lowPrice,
+                         EndBarIndex   = MainAssetCandle.barIndex,
+                         IsValid       = true
+                     )
+
+                    detectedSmt.CorrAssetIndex     := symbolIndex
+                    detectedSmt.LabelText          := monitoredSymbol + ' - ' + monitoredTimeFrame
+                    detectedSmt.MainPointPrice     := checkBearishSmt ? mainRegisteredCandle.highPrice    : mainRegisteredCandle.lowPrice
+                    detectedSmt.CorrPointPrice     := checkBearishSmt ? compareRegisteredCandle.highPrice : compareRegisteredCandle.lowPrice
+                    detectedSmt.TimeFrameInSeconds := monitoredTimeFrameInSeconds
+
+
+                    if checkBearishSmt
+                        detectedSmt.MainPointTaken := detectedSmt.MainPointTaken or (detectedSmt.MainPointPrice < MainAssetCandle.highPrice)
+                        detectedSmt.CorrPointTaken := detectedSmt.CorrPointTaken or (detectedSmt.CorrPointPrice < (isFirstAsset ? SecondAssetCandle.highPrice : ThirdAssetCandle.highPrice))
+                    else
+                        detectedSmt.MainPointTaken := detectedSmt.MainPointTaken or (detectedSmt.MainPointPrice > MainAssetCandle.lowPrice)
+                        detectedSmt.CorrPointTaken := detectedSmt.CorrPointTaken or (detectedSmt.CorrPointPrice > (isFirstAsset ? SecondAssetCandle.lowPrice : ThirdAssetCandle.lowPrice))
+
+                    if checkBearishSmt
+                        detectedBearishSmt := detectedSmt
+                    else
+                        detectedBullishSmt := detectedSmt
+                        //log.info('Registering ' + str.tostring(detectedBullishSmt.StartPrice) + ' Bar index ' + str.tostring(detectedBullishSmt.StartBarIndex))
+
+        // string bearishSmtKeyPrefix   = SmtTypeToString.get(SmtType.TimeBasedBearish) + '-' + monitoredTimeFrame + '-' //+ ARR_MONITORED_ASSETS.get(detectedBearishSmt.CorrAssetIndex)
+        // string bullishSmtKeyPrefix   = SmtTypeToString.get(SmtType.TimeBasedBullish) + '-' + monitoredTimeFrame + '-'
+
+        for iteration = 1 to 2
+            bool registerBerishSmt = (iteration == 1)
+            if registerBerishSmt and na(detectedBearishSmt)
+                continue
+            if (not(registerBerishSmt) and na (detectedBullishSmt))
+                continue
+
+            Smt smtToRegister = registerBerishSmt ? detectedBearishSmt : detectedBullishSmt
+
+            string smtKey = str.tostring(smtToRegister.Type) + '-' + str.tostring( monitoredTimeFrame )
+
+            bool canRegisterSmt = false
+
+            Smt existingValidSmt = SmtMapHolder.get( smtKey )
+            if (na(existingValidSmt))
+                canRegisterSmt := true
+            else if(existingValidSmt.CorrAssetIndex < smtToRegister.CorrAssetIndex  ) 
+                canRegisterSmt := true
+            else if(existingValidSmt.StartBarIndex < smtToRegister.StartBarIndex ) 
+                canRegisterSmt := true
+            else if (existingValidSmt.TimeFrameInSeconds < smtToRegister.TimeFrameInSeconds)
+                //log.info("Existing -> " + timeframe.from_seconds(existingValidSmt.TimeFrameInSeconds ) + " New -> " + timeframe.from_seconds(smtToRegister.TimeFrameInSeconds ))
+                canRegisterSmt := true
+
+            if( not canRegisterSmt )
+                continue
+
+            if( not na(existingValidSmt) )
+                existingValidSmt.invalidate()
+                SmtMapHolder.remove(smtKey)
+                // if(smtToRegister.StartBarIndex == 6670)
+                //     log.info("Removing => " + smtKey + '   ' + str.tostring(smtToRegister.StartBarIndex))
+
+            //log.info("Adding => " + smtKey + '   ' + str.tostring(smtToRegister.StartBarIndex))
+            SmtMapHolder.put( smtKey, smtToRegister)
+            smtToRegister.draw()
+            //log.info("Adding => " + smtKey + '   ' + str.tostring(smtToRegister.StartBarIndex))
+            
+
+
+
+    //log.info('done')
+
+startDetectingTimeBasedSmt()
+
+
+
+
+
+
+
+
+
+
+
+startDetectingTimeBasedSmt__() => 
+
+    int timeframeInSeconds  = timeframe.in_seconds(timeframe.period) // not (barstate.isconfirmed) or
+
+    // if ( (not barstate.isconfirmed) or (bar_index < bar_index[math.min( 120, last_bar_index)]) )
+    //     break
+
+    // if not (barstate.islastconfirmedhistory or (barstate.isrealtime and barstate.isconfirmed))
+    //     break
+
+ // Declare once
+    var map<int, string> ExistingSmtMainMapPoints = map.new<int, string>()
+    ExistingSmtMainMapPoints.clear()
+    for smtKey in SmtMapHolder.keys()
+        Smt registeredSmt = SmtMapHolder.get(smtKey)
+
+        bool isBearish = registeredSmt.Type == SmtType.TimeBasedBearish
+
+        if isBearish
+            if MainAssetCandle.highPrice > registeredSmt.EndPrice
+                registeredSmt.EndBarIndex := MainAssetCandle.barIndex
+                registeredSmt.EndPrice    := MainAssetCandle.highPrice
+
+            registeredSmt.MainPointTaken := registeredSmt.MainPointTaken or (registeredSmt.MainPointPrice < MainAssetCandle.highPrice)
+            registeredSmt.CorrPointTaken := registeredSmt.CorrPointTaken or (registeredSmt.CorrPointPrice < ((registeredSmt.CorrAssetIndex == 0) ? SecondAssetCandle.highPrice : ThirdAssetCandle.highPrice))
+            registeredSmt.IsValid        := not(registeredSmt.MainPointTaken and registeredSmt.CorrPointTaken)
+
+
+        bool exists = ExistingSmtMainMapPoints.contains(registeredSmt.StartBarIndex) //map.contains(existingSmtMainPoints, )
+
+        if not registeredSmt.IsValid
+            registeredSmt.invalidate()
+            SmtMapHolder.remove(smtKey)
+            ExistingSmtMainMapPoints.remove(registeredSmt.StartBarIndex)
+            continue
+
+        registeredSmt.draw()
+
+        if not exists
+            ExistingSmtMainMapPoints.put(registeredSmt.StartBarIndex, timeframe.from_seconds(registeredSmt.TimeFrameInSeconds))
+
+    
+    log.info('--------------------------')
+    for [pointBarIndex, debugInfo] in ExistingSmtMainMapPoints
+        log.info(str.tostring(pointBarIndex) + '  ' + debugInfo)
+    log.info('--------------------------')
+
+        // if(ExistingSmtMainMapPoints.keys().size() > 0)
+
+        //     log.info(ExistingSmtMainMapPoints.keys().join(', '))
+    
+
+    bool canProcessData =   bar_index > bar_index[math.min( 120, last_bar_index)] //and barstate.isconfirmed and
+    for monitoredTimeFrame in ARR_TIME_FRAMES_TO_MONITOR
+        if not canProcessData
+            break
+
+        int monitoredTimeFrameInSeconds = timeframe.in_seconds(monitoredTimeFrame)
+
+
+        if(timeframeInSeconds <= 300 and monitoredTimeFrameInSeconds > 3600) // 5 minute 90 min    
+            continue
+
+
         //log.info(monitoredTimeFrame + ' -> ' + str.tostring(timeframe.in_seconds(monitoredTimeFrame)))   
-
-        if( ( monitoredTimeFrameInSeconds < timeframeInSeconds ) )    or (monitoredTimeFrameInSeconds % timeframeInSeconds != 0 )   // //or ( not higherTimeFrameHasChanged(monitoredTimeFrame) )  compareTimeFrames(monitoredTimeFrame, timeframe.period) < 0)
+        // continue
+        if( ( monitoredTimeFrameInSeconds < timeframeInSeconds )     or (monitoredTimeFrameInSeconds % timeframeInSeconds != 0 )  ) // //or ( not higherTimeFrameHasChanged(monitoredTimeFrame) )  compareTimeFrames(monitoredTimeFrame, timeframe.period) < 0)
             continue
 
+        //log.info(monitoredTimeFrame + ' ' +str.tostring(monitoredTimeFrameInSeconds ))
 
-        if(monitoredTimeFrame != timeframe.period ) //and monitoredTimeFrameInSeconds != 1800
-            continue
-
+        // var mainAssetRegisteredCandles   = array.new<Candle>()
+        // var secondAssetRegisteredCandles = 
+        // var thirdAssetRegisteredCandles  = 
         mainAssetRegisteredCandles   =  CandlesMapHolder.getRegisteredCandles( CandlesMapHolder.getSymbolKey( syminfo.ticker      , monitoredTimeFrame) )
         secondAssetRegisteredCandles =  CandlesMapHolder.getRegisteredCandles( CandlesMapHolder.getSymbolKey( firstMonitoredAsset , monitoredTimeFrame) )
         thirdAssetRegisteredCandles  =  CandlesMapHolder.getRegisteredCandles( CandlesMapHolder.getSymbolKey( secondMonitoredAsset, monitoredTimeFrame) )
@@ -1168,9 +1536,13 @@ startDetectingTimeBasedSmt() =>
         int sizeSecond = secondAssetRegisteredCandles.size()
         int sizeThird  = thirdAssetRegisteredCandles.size()
       
-        int maxIterations = math.min(sizeMain, sizeSecond, sizeThird)    
+        // log.info(monitoredTimeFrame + ' ' +str.tostring(sizeMain))
+        // continue
 
-        if( sizeMain < 3  or sizeSecond < 3 or sizeThird < 3 )
+        // if( sizeMain < 3  or sizeSecond < 3 or sizeThird < 3 )
+        //     continue
+
+        if not (sizeMain > 0 and  sizeMain == sizeSecond and sizeMain == sizeThird)
             continue
 
         Candle mainAssetCandle   = mainAssetRegisteredCandles.get( -1 )
@@ -1201,52 +1573,9 @@ startDetectingTimeBasedSmt() =>
             //                          )
 
 
-        for[assetIndex, monitoredAsset] in ARR_MONITORED_ASSETS
-            string bearishSmtKey  = SmtTypeToString.get(SmtType.TimeBasedBearish) + '-' + monitoredTimeFrame + '-' + monitoredAsset
-            string bullishSmtKey  = SmtTypeToString.get(SmtType.TimeBasedBullish) + '-' + monitoredTimeFrame + '-' + monitoredAsset
-            Smt detectedBearishSmt    = SmtMapHolder.get(bearishSmtKey) 
-            Smt detectedBullishSmt    = SmtMapHolder.get(bullishSmtKey)   
+        
 
-            if (not na(detectedBearishSmt) and detectedBearishSmt.IsValid)
-
-                if (MainAssetCandle.highPrice > detectedBearishSmt.EndPrice)
-                    detectedBearishSmt.EndBarIndex := MainAssetCandle.barIndex
-                    detectedBearishSmt.EndPrice    := MainAssetCandle.highPrice 
-
-
-                detectedBearishSmt.MainPointTaken := detectedBearishSmt.MainPointTaken or (detectedBearishSmt.MainPointPrice < MainAssetCandle.highPrice)
-                detectedBearishSmt.CorrPointTaken := detectedBearishSmt.CorrPointTaken or (detectedBearishSmt.CorrPointPrice < ( (assetIndex == 0) ? SecondAssetCandle.highPrice : ThirdAssetCandle.highPrice) )
-                detectedBearishSmt.IsValid        := not(detectedBearishSmt.MainPointTaken and detectedBearishSmt.CorrPointTaken)
-                //bearishSmtDetected                := bearishSmtDetected or detectedBearishSmt.IsValid
-                detectedBearishSmt.draw()
-               
-
-            if( not na(detectedBullishSmt) and detectedBullishSmt.IsValid) 
-
-                if (MainAssetCandle.lowPrice < detectedBullishSmt.EndPrice)
-                    detectedBullishSmt.EndBarIndex := MainAssetCandle.barIndex
-                    detectedBullishSmt.EndPrice    := MainAssetCandle.lowPrice 
-
-                detectedBullishSmt.MainPointTaken := detectedBullishSmt.MainPointTaken or (detectedBullishSmt.MainPointPrice > MainAssetCandle.lowPrice)
-                detectedBullishSmt.CorrPointTaken := detectedBullishSmt.CorrPointTaken or (detectedBullishSmt.CorrPointPrice > ( (assetIndex == 0) ? SecondAssetCandle.lowPrice : ThirdAssetCandle.lowPrice) )
-                detectedBullishSmt.IsValid        := not(detectedBullishSmt.MainPointTaken and detectedBullishSmt.CorrPointTaken)
-                //bullishSmtDetected                := bullishSmtDetected or detectedBullishSmt.IsValid
-                detectedBullishSmt.draw()
-
-            if (not na(detectedBearishSmt) and not detectedBearishSmt.IsValid)
-                detectedBearishSmt.invalidate()
-                detectedBearishSmt:= na    
-                SmtMapHolder.remove(bearishSmtKey)  
-
-            if (not na(detectedBullishSmt) and not detectedBullishSmt.IsValid)
-                detectedBullishSmt.invalidate()
-                detectedBullishSmt := na    
-                SmtMapHolder.remove(bullishSmtKey)  
-               
-        if not (barstate.islastconfirmedhistory or (barstate.isrealtime and barstate.isconfirmed))
-            break
-
-
+        
 
         float[] arrMainHighs = array.new_float(sizeMain, 0.0)
         float[] arrMainLows  = array.new_float(sizeMain, 0.0)        
@@ -1259,197 +1588,36 @@ startDetectingTimeBasedSmt() =>
 
         arrSortedHighsIndices = arrMainHighs.sort_indices(order.ascending)
         arrSortedLowsIndices  = arrMainLows.sort_indices(order.descending)
-
-        int[] arrMainAssetHighs = array.new_int()
-        int[] arrMainAssetLows  = array.new_int()
-        
-        // int processedHighIndex = -1 
-        // for [index, highCandleIndex] in arrSortedHighsIndices 
-        //     if (highCandleIndex < processedHighIndex) 
-        //         continue 
-        //     arrMainAssetHighs.push(highCandleIndex) 
-        //     processedHighIndex := highCandleIndex
-
-        int leftMost  = 1000000
-        int rightMost = -1
-        // for [_, highCandleIndex] in arrSortedHighsIndices
-        //     if (highCandleIndex < leftMost or highCandleIndex > rightMost)
-        //         array.push(arrMainAssetHighs, highCandleIndex)
-        //         if (highCandleIndex < leftMost)
-        //             leftMost := highCandleIndex
-        //         if (highCandleIndex > rightMost)
-        //             rightMost := highCandleIndex
-
-        for [_, highCandleIndex] in arrSortedHighsIndices
-            // Skip if not extending our known range
-            if not (highCandleIndex < leftMost or highCandleIndex > rightMost )
-                continue
-
-            bool isLeftExpansion  = highCandleIndex < leftMost
-            bool isRightExpansion = highCandleIndex > rightMost
-
-            array.push(arrMainAssetHighs, highCandleIndex)
-
-            // Example: you might handle them differently
-            if isLeftExpansion
-                leftMost := highCandleIndex
-            if isRightExpansion
-                rightMost := highCandleIndex
-
-        // leftMost  := 1000000
-        // rightMost := -1
-        // //for [_, lowCandleIndex] in arrSortedLowsIndices // A low is relevant if it's outside the range already covered by lower lows if (lowCandleIndex < leftMost or lowCandleIndex > rightMost) array.push(arrMainAssetLows, lowCandleIndex) if (lowCandleIndex < leftMost) leftMost := lowCandleIndex if (lowCandleIndex > rightMost) rightMost := lowCandleIndex        
-        
-        // for [_, lowCandleIndex] in arrSortedLowsIndices
-        //     // Skip if this low is inside the range already covered by lower lows
-        //     if not (lowCandleIndex < leftMost or lowCandleIndex > rightMost)
-        //         continue
-        //     bool isLeftExpansion  = lowCandleIndex < leftMost
-        //     bool isRightExpansion = lowCandleIndex > rightMost
-        //     array.push(arrMainAssetLows, lowCandleIndex)
-        //     if isLeftExpansion
-        //         leftMost := lowCandleIndex
-        //     if isRightExpansion
-        //         rightMost := lowCandleIndex
-
+ 
 
         Candle mainRegisteredCandle    = na
         Candle compareRegisteredCandle = na
         Candle CompareAssetCandle      = na
 
-        Smt FirtsAssetBearishSmt = na
+        Smt FirtsAssetBearishSmt  = na
         Smt SecondAssetBearishSmt = na
 
-
-        // log.info('------------------')
-        // for [index, highCandleIndex] in arrMainAssetHighs 
-        //     log.info("--->>>" + str.tostring(highCandleIndex))
-        // log.info('------------------')
-
-        Candle ProcessedHigh = na
-        
-        // leftMost  := 1000000
-        // rightMost := -1
+        Smt FirtsAssetBullishSmt  = na
+        Smt SecondAssetBullishSmt = na
 
         var label[] arrHighLabels = array.new<label>()
         for j = 0 to (arrHighLabels.size() == 0 ? na : array.size(arrHighLabels) - 1)
             label.delete(array.get(arrHighLabels, j))
         array.clear(arrHighLabels)
 
-
-        leftMost  := -1
-        rightMost := -1
-        bool leftHighAdded = false
-
+        int processedRightIndex = -1 
         for i = 1 to arrSortedHighsIndices.size()
-            continue
             highCandleIndex = arrSortedHighsIndices.get(-i)
-            bool isHighestHigh = (i == 1)  // first in reverse = highest high
-
-            // Initialize bounds for the first (highest) high
-            if isHighestHigh
-                leftMost  := highCandleIndex
-                rightMost := highCandleIndex
-
-            bool isLeftExpansion  = highCandleIndex < leftMost
-            bool isRightExpansion = highCandleIndex > rightMost
-
-            // Skip if not expanding left/right, unless it's the highest high
-            if (isLeftExpansion and leftHighAdded) or not (isHighestHigh or isLeftExpansion or isRightExpansion)
+            if (highCandleIndex  < processedRightIndex)
                 continue
-
-            if isRightExpansion
-                rightMost := highCandleIndex
-            else if isLeftExpansion
-                leftMost := highCandleIndex
-                leftHighAdded := true                             
-
-            // Label text
-            string textLabel = isHighestHigh ? 'HH' : isLeftExpansion ? 'L' : 'R'
-            mainRegisteredCandle := mainAssetRegisteredCandles.get( highCandleIndex )
-            newLabel = label.new( mainRegisteredCandle.highBarIndex, mainRegisteredCandle.highPrice, text = textLabel + ' - ' +str.tostring(i), style = label.style_label_down,
-                                         color = color.maroon,
-                                         textcolor = color.white,
-                                         size = size.small
-                                     )
-            array.push(arrHighLabels, newLabel)
-
-
-
-
-        leftMost  := -1
-        rightMost := -1
-        bool leftLowAdded = false  // Track if we already added the left low
-
-        for i = 1 to arrSortedLowsIndices.size()
-            lowCandleIndex = arrSortedLowsIndices.get(-i)
-            bool isLowestLow = (i == 1)  // first in reverse = absolute lowest low
-
-            // Initialize bounds for the lowest low
-            if isLowestLow
-                leftMost  := lowCandleIndex
-                rightMost := lowCandleIndex
-
-            bool isLeftExpansion  = lowCandleIndex < leftMost
-            bool isRightExpansion = lowCandleIndex > rightMost
-
-            // Skip irrelevant lows:
-            // - skip left expansions if we already added one
-            // - skip anything that is not left/right expansion or the lowest low
-            // if (isLeftExpansion and leftLowAdded) or not (isLowestLow or isLeftExpansion or isRightExpansion)
-            //     continue
-            // if (isLeftExpansion or isRightExpansion)
-            //     continue
-            // leftLowAdded := true
-            // if (isLeftExpansion and leftLowAdded) or not (isLeftExpansion or isRightExpansion)
-            //     continue
-            if not(isRightExpansion)
-                continue
-            // Update bounds
-            if isLeftExpansion
-                leftMost := lowCandleIndex
-                leftLowAdded := true  // Only one left low allowed
-            else if isRightExpansion
-                rightMost := lowCandleIndex  // Keep all right-side expansions
-
-            // Label text
-            string textLabel = isLowestLow ? 'LL' : isLeftExpansion ? 'L' : 'R'
-
-            mainRegisteredCandle := mainAssetRegisteredCandles.get(lowCandleIndex)
-            newLabel =label.new(
-                 mainRegisteredCandle.lowBarIndex,
-                 mainRegisteredCandle.lowPrice,
-                 text = textLabel,
-                 style = label.style_label_up,
-                 color = color.new(color.teal, 0),
-                 textcolor = color.white,
-                 size = size.small
-             )
-            array.push(arrHighLabels, newLabel)
-
-
-        for i = 0 to  arrMainAssetHighs.size() -1
-            break
-            // if(i > 3)
-            //     break
-            //break
-            highCandleIndex = arrMainAssetHighs.get( i )
-            // if not (highCandleIndex < leftMost or highCandleIndex > rightMost)
-            //     continue
-    
-            // bool isLeftExpansion  = highCandleIndex < leftMost
-            // bool isRightExpansion = highCandleIndex > rightMost
-
+            processedRightIndex := highCandleIndex 
+            
             mainRegisteredCandle := mainAssetRegisteredCandles.get( highCandleIndex )
 
-            // log.info(str.tostring(highCandleIndex) )
-            newLabel = label.new( mainRegisteredCandle.highBarIndex, mainRegisteredCandle.highPrice, text = str.tostring(highCandleIndex), style = label.style_label_down,
-                                         color = color.maroon,
-                                         textcolor = color.white,
-                                         size = size.small
-                                     )
+
+            string textLabel =  ''
+            newLabel = label.new( mainRegisteredCandle.highBarIndex, mainRegisteredCandle.highPrice, text = textLabel + ' - ' +str.tostring(mainRegisteredCandle.highBarIndex), style = label.style_label_down,color = color.maroon,textcolor = color.white,size = size.small)
             array.push(arrHighLabels, newLabel)
-            continue
 
             for [symbolIndex, monitoredSymbol] in ARR_MONITORED_ASSETS
 
@@ -1475,13 +1643,11 @@ startDetectingTimeBasedSmt() =>
                                                      StartBarIndex = mainRegisteredCandle.highBarIndex , StartPrice = mainRegisteredCandle.highPrice,
                                                      EndBarIndex = MainAssetCandle.barIndex, EndPrice =  MainAssetCandle.highPrice, IsValid = true)
 
-                if (not na (ProcessedHigh)) and ProcessedHigh.highPrice > MainAssetCandle.highPrice
-                    detectedBearishSmt.EndPrice := ProcessedHigh.highPrice
-                    detectedBearishSmt.EndBarIndex := ProcessedHigh.highBarIndex
-
+                detectedBearishSmt.EndPrice := math.max(MainAssetCandle.highPrice, mainRegisteredCandle.highPrice)
+                
                 detectedBearishSmt.CorrAssetIndex := symbolIndex
-                detectedBearishSmt.TimeFrame      := monitoredTimeFrameInSeconds
-                detectedBearishSmt.TimeStamp      := time
+                //detectedBearishSmt.TimeFrame      := monitoredTimeFrameInSeconds
+                //detectedBearishSmt.TimeStamp      := time
 
                 detectedBearishSmt.MainPointPrice := mainRegisteredCandle.highPrice
                 detectedBearishSmt.CorrPointPrice := compareRegisteredCandle.highPrice
@@ -1497,8 +1663,64 @@ startDetectingTimeBasedSmt() =>
                 else    
                     SecondAssetBearishSmt := detectedBearishSmt
 
-                  
 
+
+        processedRightIndex := -1        
+        for i = 1 to arrSortedLowsIndices.size()
+            lowCandleIndex = arrSortedLowsIndices.get(-i)
+            if (lowCandleIndex < processedRightIndex)
+                continue
+
+            processedRightIndex := lowCandleIndex
+            mainRegisteredCandle := mainAssetRegisteredCandles.get(lowCandleIndex)
+            // string textLabel = 'L'
+            // newLabel =label.new(mainRegisteredCandle.lowBarIndex, mainRegisteredCandle.lowPrice, text = textLabel, style = label.style_label_up,color = color.new(color.teal, 0), textcolor = color.white, size = size.small )
+            // array.push(arrHighLabels, newLabel)
+            if ExistingSmtMainMapPoints.contains(mainRegisteredCandle.lowBarIndex)
+                continue
+
+            for [symbolIndex, monitoredSymbol] in ARR_MONITORED_ASSETS
+
+                if (symbolIndex == 0)
+                    if not na(FirtsAssetBullishSmt)
+                        continue
+                    CompareAssetCandle      := SecondAssetCandle  
+                    compareRegisteredCandle := secondAssetRegisteredCandles.get( lowCandleIndex )
+                else
+                    if not na(SecondAssetBullishSmt) 
+                        continue
+                    CompareAssetCandle      := ThirdAssetCandle  
+                    compareRegisteredCandle := thirdAssetRegisteredCandles.get( lowCandleIndex )
+
+                float mainAssetMove = MainAssetCandle.lowPrice    - mainRegisteredCandle.lowPrice
+                float compAssetMove = CompareAssetCandle.lowPrice - compareRegisteredCandle.lowPrice 
+
+
+                if( (0 == mainAssetMove and 0 == compAssetMove) or ( (mainAssetMove * compAssetMove) > 0 ) )
+                    continue
+
+                Smt detectedBullishSmt = Smt.new(Type = SmtType.TimeBasedBullish, 
+                                                     StartBarIndex = mainRegisteredCandle.lowBarIndex , StartPrice = mainRegisteredCandle.lowPrice,
+                                                     EndBarIndex = MainAssetCandle.barIndex, EndPrice =  MainAssetCandle.lowPrice, IsValid = true)
+
+
+                detectedBullishSmt.CorrAssetIndex := symbolIndex
+                //detectedBullishSmt.TimeFrame      := monitoredTimeFrameInSeconds
+                //detectedBullishSmt.TimeStamp      := time
+
+                detectedBullishSmt.MainPointPrice := mainRegisteredCandle.lowPrice
+                detectedBullishSmt.CorrPointPrice := compareRegisteredCandle.lowPrice
+                
+                detectedBullishSmt.MainPointTaken := detectedBullishSmt.MainPointTaken or (detectedBullishSmt.MainPointPrice > MainAssetCandle.lowPrice)
+                detectedBullishSmt.CorrPointTaken := detectedBullishSmt.CorrPointTaken or (detectedBullishSmt.CorrPointPrice > ( (symbolIndex == 0) ? SecondAssetCandle.lowPrice : ThirdAssetCandle.lowPrice) )
+
+                detectedBullishSmt.LabelText      := monitoredSymbol + ' - ' + monitoredTimeFrame
+
+                //ProcessedHigh := mainRegisteredCandle  
+                if(symbolIndex == 0)
+                    FirtsAssetBullishSmt  := detectedBullishSmt
+                else    
+                    SecondAssetBullishSmt := detectedBullishSmt
 
         SecondAssetBearishSmt := na
         //arrBerishDetectedSmt.set(symbolIndex, detectedBearishSmt)
@@ -1508,25 +1730,32 @@ startDetectingTimeBasedSmt() =>
             string bearishSmtKey = bearishSmtKeyPrefix + ARR_MONITORED_ASSETS.get(0)
             Smt existingBearishSmt = SmtMapHolder.get(bearishSmtKey)
 
-            if( (not na(existingBearishSmt)) and (not existingBearishSmt.IsValid) )    
-                existingBearishSmt.invalidate()
-                SmtMapHolder.remove(bearishSmtKey)
+            // if( (not na(existingBearishSmt)) and (not existingBearishSmt.IsValid) )    
+            //     existingBearishSmt.invalidate()
+            //     SmtMapHolder.remove(bearishSmtKey)
 
-            if( (not na(existingBearishSmt)) and (existingBearishSmt.IsValid) )    
-                if(existingBearishSmt.MainPointPrice != FirtsAssetBearishSmt.MainPointPrice)
-                    existingBearishSmt.invalidate()
-                    SmtMapHolder.remove(bearishSmtKey)
-                    SmtMapHolder.put(bearishSmtKey, FirtsAssetBearishSmt)
-                    FirtsAssetBearishSmt.draw()
+            // if( (not na(existingBearishSmt)) and (existingBearishSmt.IsValid) )    
+            //     if(existingBearishSmt.MainPointPrice != FirtsAssetBearishSmt.MainPointPrice)
+            //         existingBearishSmt.invalidate()
+            //         SmtMapHolder.remove(bearishSmtKey)
+            //         SmtMapHolder.put(bearishSmtKey, FirtsAssetBearishSmt)
+            //         FirtsAssetBearishSmt.draw()
 
-            if (na(existingBearishSmt))    
+
+            if ( na(existingBearishSmt))    
                 SmtMapHolder.put(bearishSmtKey, FirtsAssetBearishSmt)
-                FirtsAssetBearishSmt.draw()
+
+            // if (not na(existingBearishSmt))    
+            //     existingBearishSmt.invalidate()
+                //log.info('Invalidating')
+
+            // SmtMapHolder.put(bearishSmtKey, FirtsAssetBearishSmt)
+            // FirtsAssetBearishSmt.draw()
 
 
         if( not na(SecondAssetBearishSmt) )    
             string bearishSmtKey = bearishSmtKeyPrefix + ARR_MONITORED_ASSETS.get(0)
-            Smt existingBearishSmt = SmtMapHolder.get(bearishSmtKey) // vad daca pentru primul exists
+            Smt existingBearishSmt = SmtMapHolder.get(bearishSmtKey) // vad daca pentru primul exista
             if( (not na(existingBearishSmt)) and (existingBearishSmt.IsValid) )
                 if(existingBearishSmt.MainPointPrice == SecondAssetBearishSmt.MainPointPrice)
                     SecondAssetBearishSmt.IsValid := false
@@ -1542,122 +1771,22 @@ startDetectingTimeBasedSmt() =>
                     secondExistingSmt.invalidate()
                     SmtMapHolder.remove(bearishSmtKey)
 
-            if( SecondAssetBearishSmt.IsValid and  (not na(secondExistingSmt)) and ( secondExistingSmt.IsValid) )    
-                if(secondExistingSmt.MainPointPrice != SecondAssetBearishSmt.MainPointPrice)
-                    secondExistingSmt.invalidate()
-                    SmtMapHolder.remove(bearishSmtKey)
-                    SmtMapHolder.put(bearishSmtKey, SecondAssetBearishSmt)
-                    SecondAssetBearishSmt.draw()
+            // if( SecondAssetBearishSmt.IsValid and  (not na(secondExistingSmt)) and ( secondExistingSmt.IsValid) )    
+            //     if(secondExistingSmt.MainPointPrice != SecondAssetBearishSmt.MainPointPrice)
+            //         secondExistingSmt.invalidate()
+            //         SmtMapHolder.remove(bearishSmtKey)
+            //         SmtMapHolder.put(bearishSmtKey, SecondAssetBearishSmt)
+            //         SecondAssetBearishSmt.draw()
 
             if( SecondAssetBearishSmt.IsValid and na(secondExistingSmt))
                 SmtMapHolder.put(bearishSmtKey, SecondAssetBearishSmt)
                 SecondAssetBearishSmt.draw()
 
 
-//         if( (not na(detectedBearishSmt)) and detectedBearishSmt.IsValid )
-            
 
-//             string bearishSmtKey   = SmtTypeToString.get(SmtType.TimeBasedBearish) + '-' + monitoredTimeFrame + '-' + ARR_MONITORED_ASSETS.get(detectedBearishSmt.CorrAssetIndex)
-//             Smt existingBearishSmt = SmtMapHolder.get(bearishSmtKey)
-//             if( (not na(existingBearishSmt))  and existingBearishSmt.IsValid)
-//                 existingBearishSmt.invalidate()
-//                 SmtMapHolder.remove(bearishSmtKey)
-
-//             if(detectedBearishSmt.CorrAssetIndex == 0) // First Priority
-//                 existingBearishSmt := SmtMapHolder.get(SmtTypeToString.get(SmtType.TimeBasedBearish) + '-' + monitoredTimeFrame + '-' + str.tostring(1))
-//                 if(not na(existingBearishSmt))
-//                     existingBearishSmt.invalidate()
-
-// //            string bullishSmtKey  = SmtTypeToString.get(SmtType.TimeBasedBullish) + '-' + monitoredTimeFrame + '-' + monitoredAsset
-//             SmtMapHolder.put(bearishSmtKey, detectedBearishSmt)
-//             detectedBearishSmt.draw()
+//startDetectingTimeBasedSmt__()
 
 
-
-
-
-
-
-                    // if (MainAssetCandle.highPrice > existingBearishSmt.EndPrice)
-                    //     existingBearishSmt.EndBarIndex := MainAssetCandle.barIndex
-                    //     existingBearishSmt.EndPrice    := MainAssetCandle.highPrice 
-
-
-
-
-
-            //log.info(str.tostring(mainAssetCandle.openPrice) + ' ' + str.tostring(secondAssetCandle.openPrice) + ' ' + str.tostring(thirdAssetCandle.openPrice) + ' ' )        
-            //log.info('----------------------------------')    
-            // log.info(str.tostring(mainAssetCandle.openPrice) + ' ' + str.tostring(secondAssetCandle.openPrice) + ' ' + str.tostring(thirdAssetCandle.openPrice) + ' ' )        
-            // log.info(str.format_time(mainAssetRegisteredCandles.last().openTime , "yyyy-MM-dd HH:mm:ss" , TIMEZONE_NY) +  "  !=   "  +str.format_time(secondAssetRegisteredCandles.last().openTime , "yyyy-MM-dd HH:mm:ss", TIMEZONE_NY) )
-            // log.info(str.format_time(secondAssetRegisteredCandles.last().openTime , "yyyy-MM-dd HH:mm:ss" , TIMEZONE_NY) +  "  !=   "  +str.format_time(secondAssetRegisteredCandles.last().openTime , "yyyy-MM-dd HH:mm:ss", TIMEZONE_NY) )
-            // log.info(str.format_time(thirdAssetRegisteredCandles.last().openTime , "yyyy-MM-dd HH:mm:ss" , TIMEZONE_NY) +  "  !=   "  +str.format_time(secondAssetRegisteredCandles.last().openTime , "yyyy-MM-dd HH:mm:ss", TIMEZONE_NY) )
-
-            //continue
-
-        // if( (mainIsBullish and secondIsBullish and thirdIsBullish) or ( not(mainIsBullish) and not(secondIsBullish) and not(thirdIsBullish) ) )
-        //     continue
-
-        //continue
-            //log.info(str.tostring(mainAssetCandle.openPrice) + ' ' + str.tostring(secondAssetCandle.openPrice) + ' ' + str.tostring(thirdAssetCandle.openPrice) + ' ' )        
-
-
-
-
-
-        //log.info( monitoredTimeFrame + " -> PSP DEtected" )    
-
-
-
-
-
-
-        //SecondAssetCandle.logPrices()
-
-        // log.info('--------------Start')
-        // int maxSee = 5
-        // for i = 1 to 3
-        //     Candle candle = mainAssetRegisteredCandles.get( (-1) * i ) 
-        //     candle.logPrices()   
-
-        // log.info('--------------End')
-
-        // if (monitoredTimeFrame == timeframe.period)
-        //     continue
-
-        //thirdAssetRegisteredCandles.last().logPrices()
-
-        // if barstate.islast
-            // mainAssetRegisteredCandles.get(-2).logPrices()
-            // secondAssetRegisteredCandles.get(-2).logPrices()
-
-
-
-        // if(mainAssetRegisteredCandles.get(-1).openTime  != secondAssetRegisteredCandles.get(-1).openTime)
-        //     //continue
-        //     log.info( 'NU ESTE  -> ' + monitoredTimeFrame )
-        //     // log.info(str.format_time(mainAssetRegisteredCandles.last().openTime , "yyyy-MM-dd HH:mm:ss" , TIMEZONE_NY) +  "  !=   "  +str.format_time(secondAssetRegisteredCandles.last().openTime , "yyyy-MM-dd HH:mm:ss", TIMEZONE_NY) )
-        //     // log.info('------------------------------------------------------')    
-        //     // mainAssetRegisteredCandles.get(-1).logPrices()
-        //     //secondAssetRegisteredCandles.get(-1).logPrices()
-        //     // log.info('------------------------------------------------------')    
-        // else
-        //     log.info('ESTE MA  ' + monitoredTimeFrame + " Open Price -> " + str.tostring(secondAssetRegisteredCandles.last().openPrice))
-
-
-        // if(na(mainAssetCandle))
-        //     continue    
-        // //mainAssetCandle.logPrices()
-
-        // mainAssetCandle := arrRegisteredCandles.get(-1) //CandlesMapHolder.getLastRegisteredCandle(CandlesMapHolder.getSymbolKey(monitoredSymbol, "1D") ) 
-        // mainAssetCandle.logPrices()
-
-        //log.info("Sym -> " + monitoredSymbol + " timeframe -> " + monitoredTimeFrame + " size -> " + str.tostring(arrRegisteredCandles.size()))   
-
-        //for monitoredSymbol in ARR_MONITORED_ASSETS
-
-
-startDetectingTimeBasedSmt()
 
 
 
